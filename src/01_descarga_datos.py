@@ -39,6 +39,14 @@ def hoja_a_largo(path_excel: Path, hoja: str, indicador: str) -> pd.DataFrame:
     df = pd.read_excel(path_excel, sheet_name=hoja)
     columnas_fecha = [c for c in df.columns if isinstance(c, int) and 190001 <= c <= 210012]
 
+    # Algunas hojas traen dos filas para el mismo país (mismo label, series
+    # numéricamente distintas, ej. AUT/NLD/PRT/ZAF en ppi_m). Nos quedamos con
+    # la fila más completa para no mezclar dos series distintas por país.
+    if df["Country Code"].duplicated().any():
+        n_validos = df[columnas_fecha].notna().sum(axis=1)
+        idx_mas_completo = n_validos.groupby(df["Country Code"]).idxmax()
+        df = df.loc[idx_mas_completo]
+
     largo = df.melt(
         id_vars=["Country Code", "Country"],
         value_vars=columnas_fecha,
