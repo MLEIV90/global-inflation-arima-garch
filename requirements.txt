@@ -19,6 +19,7 @@ patsy==1.0.2
 pillow==12.3.0
 pmdarima==2.1.1
 pyarrow==25.0.0
+pycountry==26.2.16
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
 requests==2.34.2
