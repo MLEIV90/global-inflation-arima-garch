@@ -84,15 +84,53 @@ Las 15 series con el hueco interno más largo:
 | ppi_m | ALB | Albania | 1 | 3 | 3 | 201207–201209 (3m) |
 | ecpi_m | BLZ | Belize | 81 | 162 | 2 | 199012–199101 (2m); 199103–199104 (2m); 199106–199107 (2m); 199109–199110 (2m) ... y 77 más |
 
-**Hallazgo específico — desfasaje de frecuencia, no huecos aleatorios:** algunas series marcadas como 'fragmentadas' no tienen datos faltantes al azar, sino un patrón perfectamente regular (10+ tramos faltantes, todos de 1-2 meses) — son series que en realidad se reportan trimestralmente pero están cargadas en la hoja mensual:
+**Patrón de frecuencia real por serie individual.** El desfasaje de frecuencia (datos que en realidad se reportan trimestrales pero están cargados en la hoja mensual) es un fenómeno de **serie individual (país x indicador), no de país**: un mismo país puede tener un indicador 100% mensual y otro mezclado con tramos trimestrales. Se detecta por serie calculando la moda de los pasos (en meses) entre observaciones consecutivas: si todos los pasos son 1 → `mensual`; si todos son 3 → `trimestral`; cualquier otra mezcla → `mixto/cambia en el tiempo`.
 
-- `hcpi_m` / BLZ (Belize): 81 tramos, todos ≤2 meses
-- `ecpi_m` / BLZ (Belize): 81 tramos, todos ≤2 meses
-- `fcpi_m` / BLZ (Belize): 81 tramos, todos ≤2 meses
-- `fcpi_m` / IRL (Ireland): 23 tramos, todos ≤2 meses
-- `fcpi_m` / ISL (Iceland): 54 tramos, todos ≤2 meses
+| Hoja | mensual | trimestral (puro) | mixto/cambia en el tiempo |
+|---|---|---|---|
+| hcpi_m | 177 | 0 | 7 |
+| ecpi_m | 156 | 0 | 9 |
+| fcpi_m | 134 | 0 | 8 |
+| ccpi_m | 80 | 0 | 0 |
+| ppi_m | 96 | 0 | 5 |
 
-Para estas series, "imputar los huecos" no es el tratamiento correcto — lo correcto es re-muestrear la serie a frecuencia trimestral real antes de modelar, no forzarla a mensual. Queda para la fase de corrección decidir si se excluyen del panel mensual o se tratan aparte.
+No hay ningún caso de `trimestral` puro en las 5 hojas mensuales — el patrón trimestral, cuando aparece, siempre convive con tramos mensuales dentro de la misma serie (por eso cae en `mixto`, nunca sería correcto remuestrear la serie completa a trimestral sin mirar en qué tramo cambia).
+
+**Las 29 series `mixto/cambia en el tiempo`** — son las verdaderamente problemáticas, porque un solo tratamiento (imputar huecos cortos, o remuestrear a trimestral) no les sirve a todas por igual. Se lista la distribución real de pasos (en meses) de cada una para que se pueda juzgar caso por caso: un `{1: N, 2: 1}` es un hueco puntual de un mes (tratar como hueco interno normal); un `{1: N, 3: M}` con M grande es un tramo genuinamente trimestral (candidato a remuestreo, no a imputación).
+
+| Hoja | Código | País | Distribución de pasos (meses:conteo) |
+|---|---|---|---|
+| ecpi_m | BGR | Bulgaria | 1:360, 2:1 |
+| ecpi_m | BHS | Bahamas | 1:125, 2:1, 4:1, 13:1 |
+| ecpi_m | BLZ | Belize | 1:138, 3:81 |
+| ecpi_m | BRB | Barbados | 1:127, 2:2 |
+| ecpi_m | COG | Congo, Rep. | 1:224, 5:1 |
+| ecpi_m | GNB | Guinea-Bissau | 1:42, 4:1 |
+| ecpi_m | PER | Peru | 1:136, 23:1 |
+| ecpi_m | SDN | Sudan | 1:322, 3:1 |
+| ecpi_m | SUR | Suriname | 1:238, 3:1 |
+| fcpi_m | BGR | Bulgaria | 1:360, 2:1 |
+| fcpi_m | BLZ | Belize | 1:138, 3:81 |
+| fcpi_m | BRB | Barbados | 1:127, 2:2 |
+| fcpi_m | COG | Congo, Rep. | 1:224, 5:1 |
+| fcpi_m | GNB | Guinea-Bissau | 1:42, 4:1 |
+| fcpi_m | IRL | Ireland | 1:592, 3:23 |
+| fcpi_m | ISL | Iceland | 1:502, 2:3, 3:51 |
+| fcpi_m | SUR | Suriname | 1:103, 3:1 |
+| hcpi_m | BGR | Bulgaria | 1:360, 2:1 |
+| hcpi_m | BLZ | Belize | 1:169, 2:1, 3:80 |
+| hcpi_m | BRB | Barbados | 1:174, 2:2 |
+| hcpi_m | GNB | Guinea-Bissau | 1:162, 4:1 |
+| hcpi_m | RUS | Russian Federation | 1:362, 15:1, 17:1 |
+| hcpi_m | SUR | Suriname | 1:238, 3:1 |
+| hcpi_m | YEM | Yemen, Rep. | 1:59, 12:1 |
+| ppi_m | ALB | Albania | 1:112, 4:1 |
+| ppi_m | CAF | Central African Republic | 1:390, 3:1, 10:1, 30:1 |
+| ppi_m | COG | Congo, Rep. | 1:200, 2:1, 3:1, 6:1 |
+| ppi_m | MNE | Montenegro | 1:169, 5:3 |
+| ppi_m | THA | Thailand | 1:608, 8:1 |
+
+Lectura: **Belice** en `hcpi_m`/`ecpi_m`/`fcpi_m` es el único caso con un componente trimestral realmente grande (~80 pasos de 3 meses conviviendo con ~140-170 pasos mensuales) — confirma que la serie cambia de frecuencia de reporte en algún tramo de su historia, no que sea trimestral de punta a punta. **Irlanda** e **Islandia** solo muestran esta mezcla en `fcpi_m` (23 y 51 pasos de 3 meses respectivamente); en `hcpi_m` ambas son 100% mensuales (`{1: 662}`, sin ningún paso distinto de 1) — la versión anterior de este informe generalizaba el hallazgo a nivel país, lo cual era impreciso y quedó corregido acá. El resto de las series `mixto` (Bulgaria, Barbados, Guinea-Bissau, Rusia, Surinam, Yemen, Bahamas, Congo, Perú, Sudán, Albania, República Centroafricana, Montenegro, Tailandia) tienen solo 1-3 pasos distintos de 1 mes — son huecos internos puntuales (ya listados en la sección anterior), no un patrón de frecuencia distinto.
 
 ## 6. Tabla resumen: series efectivamente modelables por indicador
 

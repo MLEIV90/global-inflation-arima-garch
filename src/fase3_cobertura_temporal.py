@@ -8,6 +8,7 @@ cobertura, y lo documenta explícitamente. No corrige ningún dato.
 """
 
 import re
+from collections import Counter
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -53,6 +54,24 @@ def deduplicar_por_completitud(df: pd.DataFrame, date_cols) -> pd.DataFrame:
     return df
 
 
+def detectar_patron_frecuencia(fechas_validas):
+    """Clasifica la periodicidad REAL de una serie a partir de los pasos (en
+    meses) entre observaciones consecutivas — por serie individual, no por
+    país, porque el mismo país puede tener un indicador mensual limpio y
+    otro con tramos trimestrales (ver Belice/Irlanda/Islandia)."""
+    if len(fechas_validas) < 2:
+        return "insuficiente para determinar", {}
+    periodos = [(c // 100) * 12 + (c % 100) for c in fechas_validas]
+    pasos = [periodos[i] - periodos[i - 1] for i in range(1, len(periodos))]
+    distribucion = dict(Counter(pasos))
+    valores_unicos = set(distribucion)
+    if valores_unicos == {1}:
+        return "mensual", distribucion
+    if valores_unicos == {3}:
+        return "trimestral", distribucion
+    return "mixto/cambia en el tiempo", distribucion
+
+
 def analizar_serie(valores: pd.Series, date_cols):
     valid = valores.notna().to_numpy()
     idxv = valid.nonzero()[0]
@@ -81,7 +100,9 @@ def analizar_serie(valores: pd.Series, date_cols):
 
     n_huecos = len(huecos)
     meses_faltantes_internos = sum(h[2] for h in huecos)
-    patron_periodico = n_huecos >= 10 and max((h[2] for h in huecos), default=0) <= 2
+
+    fechas_validas = [date_cols[i] for i in idxv]
+    patron_frecuencia, distribucion_pasos = detectar_patron_frecuencia(fechas_validas)
 
     if n_huecos == 0:
         clasificacion = "completa" if primer_mes <= CUTOFF_COMPLETA else "arranque tardío"
@@ -100,7 +121,8 @@ def analizar_serie(valores: pd.Series, date_cols):
         "meses_faltantes_internos": meses_faltantes_internos,
         "huecos": huecos,
         "clasificacion": clasificacion,
-        "patron_periodico": patron_periodico,
+        "patron_frecuencia": patron_frecuencia,
+        "distribucion_pasos": distribucion_pasos,
     }
 
 
@@ -288,26 +310,68 @@ def construir_markdown(tabla: pd.DataFrame, n_excluidas: int, n_sin_dato: int) -
         L.append("Ninguna serie tiene huecos internos. ✅")
     L.append("")
 
-    periodicas = tabla[tabla["patron_periodico"]]
-    if len(periodicas):
-        L.append(
-            "**Hallazgo específico — desfasaje de frecuencia, no huecos aleatorios:** algunas "
-            "series marcadas como 'fragmentadas' no tienen datos faltantes al azar, sino un "
-            "patrón perfectamente regular (10+ tramos faltantes, todos de 1-2 meses) — son "
-            "series que en realidad se reportan trimestralmente pero están cargadas en la hoja "
-            "mensual:"
-        )
-        L.append("")
-        for _, r in periodicas.iterrows():
-            L.append(f"- `{r['hoja']}` / {r['codigo_pais']} ({r['pais']}): {r['n_huecos']} tramos, todos ≤2 meses")
-        L.append("")
-        L.append(
-            "Para estas series, \"imputar los huecos\" no es el tratamiento correcto — lo "
-            "correcto es re-muestrear la serie a frecuencia trimestral real antes de modelar, "
-            "no forzarla a mensual. Queda para la fase de corrección decidir si se excluyen del "
-            "panel mensual o se tratan aparte."
-        )
-        L.append("")
+    L.append(
+        "**Patrón de frecuencia real por serie individual.** El desfasaje de frecuencia "
+        "(datos que en realidad se reportan trimestrales pero están cargados en la hoja "
+        "mensual) es un fenómeno de **serie individual (país x indicador), no de país**: un "
+        "mismo país puede tener un indicador 100% mensual y otro mezclado con tramos "
+        "trimestrales. Se detecta por serie calculando la moda de los pasos (en meses) entre "
+        "observaciones consecutivas: si todos los pasos son 1 → `mensual`; si todos son 3 → "
+        "`trimestral`; cualquier otra mezcla → `mixto/cambia en el tiempo`."
+    )
+    L.append("")
+    resumen_freq = tabla.groupby(["hoja", "patron_frecuencia"]).size().unstack(fill_value=0)
+    for col in ["mensual", "trimestral", "mixto/cambia en el tiempo"]:
+        if col not in resumen_freq.columns:
+            resumen_freq[col] = 0
+    L.append("| Hoja | mensual | trimestral (puro) | mixto/cambia en el tiempo |")
+    L.append("|---|---|---|---|")
+    for hoja in HOJAS_MENSUALES:
+        fila = resumen_freq.loc[hoja]
+        L.append(f"| {hoja} | {fila['mensual']} | {fila['trimestral']} | {fila['mixto/cambia en el tiempo']} |")
+    L.append("")
+    L.append(
+        "No hay ningún caso de `trimestral` puro en las 5 hojas mensuales — el patrón "
+        "trimestral, cuando aparece, siempre convive con tramos mensuales dentro de la misma "
+        "serie (por eso cae en `mixto`, nunca sería correcto remuestrear la serie completa a "
+        "trimestral sin mirar en qué tramo cambia)."
+    )
+    L.append("")
+
+    mixtas = tabla[tabla["patron_frecuencia"] == "mixto/cambia en el tiempo"].sort_values(
+        ["hoja", "codigo_pais"]
+    )
+    L.append(
+        f"**Las {len(mixtas)} series `mixto/cambia en el tiempo`** — son las verdaderamente "
+        "problemáticas, porque un solo tratamiento (imputar huecos cortos, o remuestrear a "
+        "trimestral) no les sirve a todas por igual. Se lista la distribución real de pasos "
+        "(en meses) de cada una para que se pueda juzgar caso por caso: un `{1: N, 2: 1}` es "
+        "un hueco puntual de un mes (tratar como hueco interno normal); un `{1: N, 3: M}` con "
+        "M grande es un tramo genuinamente trimestral (candidato a remuestreo, no a "
+        "imputación)."
+    )
+    L.append("")
+    L.append("| Hoja | Código | País | Distribución de pasos (meses:conteo) |")
+    L.append("|---|---|---|---|")
+    for _, r in mixtas.iterrows():
+        pasos_str = ", ".join(f"{k}:{v}" for k, v in sorted(r["distribucion_pasos"].items()))
+        L.append(f"| {r['hoja']} | {r['codigo_pais']} | {r['pais']} | {pasos_str} |")
+    L.append("")
+    L.append(
+        "Lectura: **Belice** en `hcpi_m`/`ecpi_m`/`fcpi_m` es el único caso con un componente "
+        "trimestral realmente grande (~80 pasos de 3 meses conviviendo con ~140-170 pasos "
+        "mensuales) — confirma que la serie cambia de frecuencia de reporte en algún tramo de "
+        "su historia, no que sea trimestral de punta a punta. **Irlanda** e **Islandia** solo "
+        "muestran esta mezcla en `fcpi_m` (23 y 51 pasos de 3 meses respectivamente); en "
+        "`hcpi_m` ambas son 100% mensuales (`{1: 662}`, sin ningún paso distinto de 1) — la "
+        "versión anterior de este informe generalizaba el hallazgo a nivel país, lo cual era "
+        "impreciso y quedó corregido acá. El resto de las series `mixto` (Bulgaria, Barbados, "
+        "Guinea-Bissau, Rusia, Surinam, Yemen, Bahamas, Congo, Perú, Sudán, Albania, República "
+        "Centroafricana, Montenegro, Tailandia) tienen solo 1-3 pasos distintos de 1 mes — son "
+        "huecos internos puntuales (ya listados en la sección anterior), no un patrón de "
+        "frecuencia distinto."
+    )
+    L.append("")
 
     L.append("## 6. Tabla resumen: series efectivamente modelables por indicador")
     L.append("")
