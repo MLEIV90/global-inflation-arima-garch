@@ -6,7 +6,10 @@
 **Alcance:** integridad de datos, revisión de código, metodología, validez estadística, reproducibilidad, documentación, posicionamiento del proyecto.
 **Naturaleza:** auditoría puramente diagnóstica. Ningún hallazgo de este documento fue remediado — la remediación queda para una fase correctiva posterior, explícitamente fuera de alcance acá.
 
-**Nota de verificación:** cada hallazgo listado abajo fue re-verificado de forma independiente (releyendo el código citado, o recalculando la cifra desde `data/raw/Inflation-data.xlsx` / los parquets procesados) antes de incorporarlo a este documento. En cuatro puntos la verificación encontró una cifra distinta a la reportada originalmente; en esos casos se indica explícitamente **[cifra corregida en verificación]** con el valor original entre paréntesis, para que quede trazable qué cambió y por qué. El resto de los hallazgos verificó exacto.
+**Nota de verificación:** cada hallazgo listado abajo fue re-verificado de forma independiente (releyendo el código citado, o recalculando la cifra desde `data/raw/Inflation-data.xlsx` / los parquets procesados) antes de incorporarlo a este documento. En los puntos donde la verificación encontró una cifra distinta a la reportada originalmente, se indica explícitamente **[cifra corregida en verificación]** con el valor original a continuación, para que quede trazable qué cambió y por qué. El resto de los hallazgos verificó exacto.
+
+- **Ronda Fases A-B** (2026-08-08): 4 correcciones — reparto interno de A.3 (9+27, no 12+24), ejemplos de puntos válidos de A.3 (columna equivocada), ejemplo de Mozambique en A.6 (serie no duplicada), matiz de B.5 (el README sí menciona el piso, parcialmente).
+- **Ronda Fase C-E** (2026-08-08): 2 correcciones menores de precisión — ratio de D.3 (3.16× no 3.2×) y cantidad de paquetes de E.2 (121 no "130+"). El resto (incluyendo los números más cargados de C.2: 520/640, 519, medianas 289.5/166.5, p=4.36e-29) verificó exacto.
 
 ## Clasificación de severidad
 
@@ -189,15 +192,176 @@ El criterio exige **cero huecos internos absolutos**, sin importar cuán largo s
 
 ## FASE C — Metodología
 
-*(pendiente — no evaluada en esta ronda de auditoría)*
+### C.1 — Elección de la transformación log-diff
+**Severidad:** 🔵 **OBSERVACIÓN**
+
+**Descripción:** la elección de `log-diff` sobre `pct_change` para alimentar el modelado está justificada por estabilidad numérica ante hiperinflación (Fase 4) y validada externamente contra la tasa oficial del Banco Mundial (A.5). No se probó sensibilidad del resultado ante transformaciones alternativas (ej. Box-Cox, diferencias de segundo orden en log).
+
+**Evidencia:** `reports/fase4_univariada.md` (comparación cuantitativa `pct_change` vs. `log-diff`); A.5 (validación externa, error medio 0.227 pp).
+
+**Impacto en conclusiones:** ninguno — la elección está defendida con evidencia, no es una decisión arbitraria.
+
+**Remediación sugerida:** ninguna acción requerida. Opcionalmente, en una fase de robustez futura, re-correr el modelado con una transformación alternativa sobre una muestra chica para confirmar que el ranking de previsibilidad no depende de la elección de transformación.
+
+---
+
+### C.2 — ARIMA mal especificado se propaga a GARCH sin filtrar
+**Severidad:** 🟠 **SIGNIFICATIVO**
+
+**Descripción:** el test de Ljung-Box sobre los residuos del ARIMA inicial (el mismo modelo cuyos residuos alimentan GARCH) da p<0.05 —residuos con autocorrelación remanente, señal de especificación insuficiente— en una fracción mayoritaria de las series, y esas series no se filtran ni se marcan antes de pasarlas a GARCH.
+
+**Evidencia (recalculada sobre `resultados_enriquecidos.parquet`):**
+- **520 de 640 series (81.2%)** con ARIMA convergido tienen `ljung_box_p < 0.05`.
+- De esas 520, **519 tienen GARCH ajustado** sobre esos residuos autocorrelacionados.
+- **421 de las 640 (65.8% del total, 81.0% de las 520 que fallan)** tienen `ljung_box_p < 0.001` — muy por debajo del umbral convencional, lo que sugiere que en una porción sustancial de los casos no es solo sensibilidad del test a n grande.
+- **Matiz confirmado**: las series que fallan Ljung-Box son sistemáticamente más largas (mediana 289.5 meses) que las que no fallan (mediana 166.5 meses) — Mann-Whitney U, **p=4.36×10⁻²⁹**. Es consistente con que, a mayor n, el test de Ljung-Box detecta autocorrelación cada vez más chica como "estadísticamente significativa" aunque sea económicamente trivial — parte del 81% probablemente es esto, no necesariamente mala especificación real.
+
+**Impacto en conclusiones:** el hallazgo central del proyecto (gradiente de previsibilidad por ingreso, Análisis A) se basa en el **RMSE walk-forward del ARIMA**, no en los residuos in-sample ni en GARCH — no se ve afectado directamente. El hallazgo de Análisis C sobre persistencia GARCH (que no distingue por indicador ni por ingreso) es un hallazgo **negativo** (ausencia de diferencia) — que la volatilidad ajustada sobre residuos parcialmente mal especificados no muestre patrón es, si acaso, un motivo adicional de cautela sobre ese resultado negativo, no una invalidación de un resultado positivo. El daño real es que el proyecto no reportó en ningún lado qué fracción de los ajustes GARCH parte de una base con autocorrelación residual, y por lo tanto no se puede distinguir, sin este análisis, cuánto de la falta de patrón en persistencia GARCH (Análisis C) es señal real y cuánto es ruido de una base mal filtrada.
+
+**Remediación sugerida (no implementar en esta fase):** filtrar (o al menos marcar con un flag `arima_bien_especificado`) las series con Ljung-Box significativo antes de interpretarlas en el contexto de GARCH; reportar la fracción afectada en `reports/analisis_C_volatilidad.md`; considerar repetir el análisis de persistencia GARCH restringido a las ~120 series (19%) con residuos limpios, como chequeo de robustez.
+
+---
+
+### C.3 — GARCH(1,1) simétrico, sin variantes asimétricas
+**Severidad:** 🔵 **OBSERVACIÓN**
+
+**Descripción:** el proyecto usa exclusivamente GARCH(1,1) simétrico. No distingue si un shock de inflación viene de una sorpresa al alza o a la baja (para eso harían falta EGARCH o GJR-GARCH).
+
+**Evidencia:** `src/06b_modelado_robusto.py`, `_ajustar_garch()` — `arch_model(resid, vol="Garch", p=1, q=1, rescale=True)`, sin alternativa. Ya documentado como decisión consciente en `README.md`, sección "Trabajo futuro".
+
+**Impacto en conclusiones:** ninguno — el alcance está declarado explícitamente, no es una omisión oculta. `rescale=True` afecta la escala de `omega` pero no la de la persistencia (`alpha+beta`), que es la métrica efectivamente usada en Análisis C — no hay confusión de unidades en el hallazgo reportado.
+
+**Remediación sugerida:** ya recogida en "Trabajo futuro" del README — sin acción adicional en esta auditoría.
+
+---
+
+### C.4 — Sesgo por re-estimar el orden cada 6 pasos (no cada mes)
+**Severidad:** 🔵 **OBSERVACIÓN** — **mitigado, ya verificado**
+
+**Descripción:** el walk-forward re-busca `(p,d,q)` cada `REESTIMAR_CADA=6` pasos en vez de en cada uno de los 24, por eficiencia. Esto podría introducir un sesgo si el orden "óptimo" cambia rápido mes a mes.
+
+**Evidencia:** `reports/auditoria_metodologica.md`, Parte 1 — el escenario de leakage (que es un caso más extremo de "el orden no se re-optimiza con cada dato nuevo") se midió directamente: el ranking de países con y sin ese efecto correlaciona en ρ=0.996 (Spearman). El efecto de la cadencia de re-estimación en sí no se aisló por separado, pero la cota superior de su impacto ya está acotada por esa medición.
+
+**Impacto en conclusiones:** ninguno, dado lo ya verificado.
+
+**Remediación sugerida:** ninguna acción requerida.
+
+---
+
+### C.5 — Baseline de comparación potencialmente sub-óptimo
+**Severidad:** 🟠 **SIGNIFICATIVO**
+
+**Descripción:** el único benchmark contra el que se mide el aporte de ARIMA es el random walk ("el próximo valor es el último observado"). La literatura de pronóstico de inflación (Atkeson & Ohanian, 2001, *"Are Phillips Curves Useful for Forecasting Inflation?"*) documenta que un promedio móvil de los últimos 12 meses suele ser un benchmark más difícil de superar que el random walk puro, para series de inflación específicamente.
+
+**Evidencia:** `src/06b_modelado_robusto.py`, `validacion_walk_forward()` — `valor_anterior = full[S + i - 1]` es la única definición de baseline en todo el pipeline. No hay una segunda columna de referencia calculada.
+
+**Impacto en conclusiones:** no invalida el 63% de series que le ganan al random walk (ese número es correcto para el benchmark que efectivamente se usó). Sí significa que esa cifra probablemente **sobreestima** el valor agregado real de ARIMA — contra un benchmark más exigente (media móvil 12m), la fracción de series donde ARIMA aporta algo probablemente sea menor a 63%. El hallazgo del gradiente de ingreso (Análisis A) es una comparación *relativa entre países*, no depende del benchmark absoluto, así que no se ve afectado en la misma medida.
+
+**Remediación sugerida (no implementar en esta fase):** agregar el benchmark Atkeson-Ohanian (media móvil de 12 meses) al pipeline de modelado, calcular `ratio_vs_ao12` en paralelo a `ratio_vs_naive`, y reportar ambos en Análisis A.
+
+---
+
+### C.6 — Tratamiento de huecos internos
+Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio documentado ("usar el tramo continuo más largo") y el implementado (exclusión total de la serie ante cualquier hueco).
+
+---
 
 ## FASE D — Validez Estadística
 
-*(pendiente — no evaluada en esta ronda de auditoría)*
+### D.1 — Supuestos de los tests utilizados
+**Severidad:** 🔵 **OBSERVACIÓN**
 
-## FASE E — Reproducibilidad
+**Descripción:** los tests no paramétricos (Kruskal-Wallis, Wilcoxon signed-rank, Friedman) usados en Análisis A/B son apropiados dado que el RMSE no es normal (asimetría alta, confirmada y reportada explícitamente por el propio proyecto en `reports/analisis_A_previsibilidad.md`). El único test paramétrico con supuestos cuestionables (chi-cuadrado, Análisis C, sección 2) ya fue auto-reportado con su propia advertencia de validez (38% de celdas con frecuencia esperada <5) en el momento en que se corrió, no en esta auditoría.
 
-*(pendiente — no evaluada en esta ronda de auditoría)*
+**Evidencia:** `reports/analisis_C_volatilidad.md`, sección 2 — advertencia de validez ya presente en el documento original.
+
+**Impacto en conclusiones:** ninguno.
+
+**Remediación sugerida:** ninguna acción requerida — es un ejemplo de buena práctica ya aplicada, no un hallazgo a remediar.
+
+---
+
+### D.2 — Multiplicidad de tests (riesgo de falsos positivos)
+**Severidad:** — **SIN HALLAZGO** (fortaleza)
+
+**Descripción:** se evaluó si los ~7 tests de significancia independientes que sostienen los hallazgos principales (no las docenas de comparaciones descriptivas incluidas en cada informe) sobreviven una corrección de Bonferroni conjunta.
+
+**Evidencia:** los 7 tests principales — gradiente de ingreso (Kruskal-Wallis, p=5.6×10⁻⁷), núcleo vs. headline (Wilcoxon, p=3.3×10⁻⁹), energía vs. núcleo (Wilcoxon, p=5.8×10⁻¹¹), alimentos vs. núcleo (Wilcoxon, p=3.4×10⁻¹²), orden de previsibilidad entre indicadores (Friedman, p=3.9×10⁻³⁰), correlación parcial ingreso↔RMSE controlando longitud (p=7.9×10⁻⁶), gradiente sobre muestra truncada (Kruskal-Wallis, p=2.3×10⁻⁶) — tienen p-valores entre 1×10⁻⁶ y 1×10⁻³⁰. Con umbral de Bonferroni para 7 tests (0.05/7≈0.0071) o incluso para 10 (0.005), los 7 sobreviven con enorme margen.
+
+**Matiz importante:** esto aplica a los tests de hipótesis independientes. **No** aplica de la misma manera a los coeficientes individuales del modelo OLS multivariado (`reports/robustez_multivariado.md`) — son estimaciones de un único modelo conjunto, no tests independientes, y no se corrigieron por multiplicidad entre sí. El más débil de esos coeficientes (`ingreso_Lower middle income`, p=0.017) **no sobreviviría** un umbral de Bonferroni de 0.005 si se lo tratara como parte de la misma familia de comparaciones — vale la pena tenerlo presente al citar ese coeficiente específico (a diferencia de los otros dos coeficientes de ingreso, p=0.001, que sí sobrevivirían holgadamente).
+
+**Impacto en conclusiones:** ninguno sobre los 7 tests principales. Matiz agregado sobre un coeficiente específico del modelo multivariado.
+
+**Remediación sugerida:** ninguna acción de código requerida. Sugerido documentar la distinción entre "tests independientes" y "coeficientes de un mismo modelo" la próxima vez que se cite el coeficiente de `ingreso_Lower middle income` específicamente.
+
+---
+
+### D.3 — Tamaño de efecto del hallazgo central
+**Severidad:** — **SIN HALLAZGO** (fortaleza)
+
+**Descripción:** se calculó el tamaño de efecto (no solo la significancia) del gradiente de previsibilidad por ingreso.
+
+**Evidencia (recalculada):** épsilon-cuadrado = (H − k + 1)/(n − k) = (31.85 − 4 + 1)/(174 − 4) = **0.170** — efecto grande según las convenciones habituales (>0.14). Ratio de RMSE mediano entre el grupo menos predecible (Low income, 1.70) y el más predecible (High income, 0.54): **3.16×** **[precisión ajustada en verificación; reportado originalmente: 3.2×, diferencia menor de redondeo]**.
+
+**Impacto en conclusiones:** ninguno — refuerza el hallazgo. No es un caso de significancia estadística con efecto trivial.
+
+**Remediación sugerida:** ninguna acción requerida. Sugerido incorporar el épsilon-cuadrado como métrica reportada de forma explícita en `reports/analisis_A_previsibilidad.md`, no solo en esta auditoría.
+
+---
+
+### D.4 — Robustez del modelo OLS (multicolinealidad)
+**Severidad:** 🔵 **OBSERVACIÓN**
+
+**Descripción:** el VIF (factor de inflación de varianza) del modelo multivariado ya fue calculado, reportado y marcado con advertencia explícita por el propio proyecto, no por esta auditoría.
+
+**Evidencia:** `reports/robustez_multivariado.md`, sección "Multicolinealidad (VIF)" — 5 de 12 predictores con VIF>5, con advertencia textual sobre interpretar esos coeficientes con cautela.
+
+**Impacto en conclusiones:** ninguno adicional al ya reconocido por el propio proyecto.
+
+**Remediación sugerida:** ninguna acción requerida — buena práctica ya aplicada.
+
+---
+
+### D.5 — Poder estadístico de los hallazgos negativos (ausencia de diferencia)
+**Severidad:** — **SIN HALLAZGO** (observación menor)
+
+**Descripción:** varios hallazgos del proyecto son de **ausencia** de diferencia (persistencia GARCH no difiere por indicador ni por ingreso, Análisis B/C) — vale la pena confirmar que no es simplemente falta de poder estadístico por muestras chicas.
+
+**Evidencia (recalculada sobre `resultados_enriquecidos.parquet`, series con GARCH convergido):** hcpi n=172, ecpi n=151, fcpi n=131, ppi n=93, ccpi n=79. La mayoría de los grupos supera ampliamente n=100; `ccpi` (79) y `ppi` (93) son los más chicos, algo por debajo de 100 pero no drásticamente.
+
+**Impacto en conclusiones:** ninguno — el tamaño muestral es razonable en la mayoría de los grupos comparados; la ausencia de diferencia reportada es creíble como hallazgo genuino, no como artefacto de poder insuficiente, aunque `ccpi` es el grupo donde más cautela amerita.
+
+**Remediación sugerida:** ninguna acción requerida. Opcionalmente, reportar el poder estadístico ex-post (no solo el n) la próxima vez que se destaque un hallazgo de ausencia de diferencia sobre el grupo `ccpi` específicamente.
+
+---
+
+## FASE E — Reproducibilidad *(parcial, en curso)*
+
+### E.2 — Cobertura de dependencias
+**Severidad:** — **SIN HALLAZGO** (observación menor)
+
+**Descripción:** se verificó que `requirements.txt` cubra todos los imports usados en `src/*.py` y `run_pipeline.py`.
+
+**Evidencia:** **121 paquetes** con versión fijada **[precisión ajustada en verificación; reportado originalmente: "130+"]**, incluyendo todas las dependencias directas (`pandas`, `numpy`, `statsmodels`, `pmdarima`, `arch`, `joblib`, `scipy`, `openpyxl`, `matplotlib`, `seaborn`, `requests`, `pycountry`) y el árbol completo de Jupyter (agregado para `notebooks/informe_completo.ipynb`). Es un `pip freeze` completo del entorno, no un listado mínimo de dependencias directas — funciona para reproducibilidad exacta pero es más pesado de lo estrictamente necesario para correr solo el pipeline (sin el notebook).
+
+**Impacto en conclusiones:** ninguno.
+
+**Remediación sugerida:** opcionalmente, separar `requirements.txt` (mínimo, pipeline) de un `requirements-notebook.txt` o `requirements-dev.txt` (Jupyter y afines), si en algún momento importa minimizar el entorno de producción.
+
+---
+
+### E.3 — Rutas hardcodeadas
+**Severidad:** — **SIN HALLAZGO**
+
+**Descripción:** se buscaron rutas absolutas hardcodeadas (Windows o Unix) en todo `src/*.py` y `run_pipeline.py`.
+
+**Evidencia:** cero coincidencias fuera del patrón dinámico `Path(__file__).resolve().parents[1]`, usado consistentemente en los 15 scripts para derivar la raíz del proyecto en tiempo de ejecución. El pipeline es portable entre máquinas/sistemas operativos sin edición manual de rutas.
+
+**Impacto en conclusiones:** ninguno.
+
+**Remediación sugerida:** ninguna acción requerida.
+
+---
 
 ## FASE F — Documentación
 
@@ -222,7 +386,20 @@ El criterio exige **cero huecos internos absolutos**, sin importar cuán largo s
 | B.2 | Código | Data leakage en walk-forward | Sin hallazgo | Confirmado exacto |
 | B.3 | Código | Determinismo y semillas | Sin hallazgo | Confirmado exacto |
 | B.5 | Código | Consistencia de parámetros código↔documentación | 🔵 Observación | Matiz agregado en verificación |
+| C.1 | Metodología | Transformación log-diff sin test de sensibilidad | 🔵 Observación | Confirmado, ya defendido con evidencia |
+| C.2 | Metodología | ARIMA con residuos autocorrelacionados propagado a GARCH sin filtrar | 🟠 Significativo | Confirmado exacto (520/640, 519, p=4.36e-29) |
+| C.3 | Metodología | GARCH(1,1) sin variantes asimétricas | 🔵 Observación | Confirmado, ya declarado en README |
+| C.4 | Metodología | Re-estimación cada 6 pasos, no cada mes | 🔵 Observación | Confirmado, ya acotado por auditoría previa |
+| C.5 | Metodología | Baseline random walk, no media móvil 12m (Atkeson-Ohanian) | 🟠 Significativo | Confirmado — único benchmark en el código |
+| C.6 | Metodología | Tratamiento de huecos — ver B.1 | — | Referencia cruzada |
+| D.1 | Estadística | Supuestos de tests no-paramétricos | 🔵 Observación | Confirmado, buena práctica ya aplicada |
+| D.2 | Estadística | Multiplicidad de tests (Bonferroni) | Sin hallazgo (fortaleza) | Confirmado, con matiz sobre coeficiente OLS p=0.017 |
+| D.3 | Estadística | Tamaño de efecto del gradiente de ingreso | Sin hallazgo (fortaleza) | ε²=0.17 confirmado; ratio corregido a 3.16× |
+| D.4 | Estadística | Robustez OLS (VIF) | 🔵 Observación | Confirmado, ya reportado por el proyecto |
+| D.5 | Estadística | Poder estadístico de hallazgos negativos | Sin hallazgo (menor) | Confirmado (n=79-172 según indicador) |
+| E.2 | Reproducibilidad | Cobertura de dependencias | Sin hallazgo (menor) | Confirmado, cantidad corregida a 121 |
+| E.3 | Reproducibilidad | Rutas hardcodeadas | Sin hallazgo | Confirmado, cero coincidencias |
 
-**Totales por severidad:** 🟠 Significativo: 2 (A.3, B.1 — mismo problema raíz, contado dos veces por afectar tanto datos como código) · 🟡 Menor: 1 · 🔵 Observación: 2 · Sin hallazgo: 4.
+**Totales por severidad (Fases A-E):** 🟠 Significativo: 4 (A.3, B.1 —mismo problema raíz—, C.2, C.5) · 🟡 Menor: 1 (A.6) · 🔵 Observación: 8 · Sin hallazgo (fortaleza/confirmado): 5.
 
-**Ningún hallazgo de esta ronda es CRÍTICO** — ninguno invalida un resultado ya publicado en `reports/analisis_A/B/C`, `auditoria_metodologica.md` o `robustez_multivariado.md`. El hallazgo de mayor severidad (A.3/B.1) es sobre **alcance no documentado**, no sobre corrección de lo ya calculado.
+**Ningún hallazgo de estas rondas es CRÍTICO** — ninguno invalida un resultado ya publicado en `reports/analisis_A/B/C`, `auditoria_metodologica.md` o `robustez_multivariado.md`. Los cuatro hallazgos SIGNIFICATIVO son, en los cuatro casos, sobre **alcance o rigor no documentado** (series excluidas sin explicar por qué, GARCH corriendo sobre residuos no filtrados, benchmark único no necesariamente el más exigente), no sobre errores en lo ya calculado y reportado. Fase E queda parcial (E.1, E.4+ pendientes de una ronda futura); Fases F y G siguen sin evaluar.
