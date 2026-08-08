@@ -2,6 +2,8 @@
 
 Análisis de series de tiempo (ARIMA) y de volatilidad (GARCH) sobre la inflación mensual de **188 países**, usando el *Global Database of Inflation* del Banco Mundial. El objetivo no es "predecir la inflación" — es responder una pregunta más interesante y más honesta: **¿qué tan predecible es la inflación, y de qué depende esa previsibilidad?**
 
+> 📓 Este README es el resumen de vitrina. El recorrido narrativo completo — de la fuente cruda a los hallazgos finales, con las gráficas de diagnóstico en contexto y un ejemplo de ajuste ARIMA/GARCH en vivo — está en [`notebooks/informe_completo.ipynb`](notebooks/informe_completo.ipynb).
+
 ## Resumen ejecutivo
 
 Este proyecto ajusta un modelo ARIMA (previsibilidad de nivel) y un GARCH(1,1) (persistencia de volatilidad) por separado a cada una de ~640-676 series país×indicador (headline CPI, CPI núcleo, energía, alimentos y productor), evaluados con validación walk-forward contra un baseline ingenuo (random walk). El pipeline corre en paralelo con `joblib` sobre una notebook, sin infraestructura distribuida — una decisión de ingeniería deliberada, no una limitación (ver más abajo).
