@@ -408,11 +408,101 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 
 ## FASE F — Documentación
 
-*(pendiente — no evaluada en esta ronda de auditoría)*
+### F.1 — Consistencia numérica README ↔ resultados: cifra de Venezuela
+**Severidad:** — **SIN HALLAZGO** *(no confirmado en verificación — ver nota)*
+
+**Descripción:** se verificó puntualmente la cifra de Venezuela PPI citada como ejemplo del contraste `pct_change` vs. `log-diff`.
+
+**Evidencia:** `README.md` línea 65 dice textualmente *"el mismo evento real en Venezuela midió **344.272%** en `pct_change` contra **814%** en `log-diff`"* — el número completo, no truncado. `notebooks/informe_completo.ipynb` (celda de Fase 4) dice lo mismo: **344.272%**. Búsqueda de la cadena `"272%"` en ambos archivos: una sola coincidencia en cada uno, en los dos casos como parte de `344.272%`, no como un valor `272%` aislado.
+
+**Nota de verificación:** el hallazgo tal como fue reportado originalmente ("el README menciona 272%, truncamiento accidental de 344") **no se confirma** — no existe esa cadena de texto en el repo actual. Es posible que se haya corregido entre el momento en que se detectó y esta verificación, o que la observación original haya sido un error de lectura. Se documenta como "sin hallazgo" en vez de omitirlo silenciosamente, para que quede trazable que sí se buscó y no se encontró.
+
+**Impacto en conclusiones:** ninguno.
+
+**Remediación sugerida:** ninguna acción requerida.
+
+---
+
+### F.2 — Afirmaciones del README contra evidencia recalculada
+**Severidad:** — **SIN HALLAZGO**
+
+**Descripción:** se extrajeron programáticamente todas las cifras estadísticas citadas en `README.md` (p-valores, ρ, R², n) y se contrastaron contra los valores ya verificados de forma independiente en las Fases A-E de esta misma auditoría y en los informes de Análisis A/B/C.
+
+**Evidencia:** `R²=0.315`, `n=171/76/57`, y los 7 p-valores citados (5.6×10⁻⁷, 3.3×10⁻⁹, 5.8×10⁻¹¹, 3.4×10⁻¹², 3.9×10⁻³⁰, 7.9×10⁻⁶, 2.3×10⁻⁶) coinciden exactos con los valores ya confirmados en Fases A-D de esta auditoría.
+
+**Impacto en conclusiones:** ninguno.
+
+**Remediación sugerida:** ninguna acción requerida.
+
+---
+
+### F.3 — Completitud de la sección de limitaciones
+**Severidad:** 🟡 **MENOR**
+
+**Descripción:** la sección "Limitaciones honestas" de `README.md` es sustancialmente más completa que lo habitual en un proyecto de este tipo (declara panel no balanceado, series sin GARCH, un solo tipo de modelo, estacionalidad no explotada, incertidumbre del ranking) — pero fue escrita antes de que existiera esta auditoría integral, así que no incluye los hallazgos SIGNIFICATIVO que la propia auditoría encontró después.
+
+**Evidencia (`README.md`, sección "Limitaciones honestas", verificada línea por línea):**
+- **No menciona C.2** (81% de series con residuos ARIMA autocorrelacionados, GARCH ajustado encima sin filtrar).
+- **No menciona C.5** (el único benchmark de comparación es random walk, sin media móvil de 12 meses).
+- **Menciona el criterio de huecos, pero solo para GARCH** ("el piso de 100 meses sin huecos internos que exige `apto_garch`") — no aclara que la misma regla aplica a `apto_arima`, ni cuantifica que 27 series con cobertura sustancial (61-616 meses) quedan excluidas por esta razón (A.3/B.1).
+
+**Impacto en conclusiones:** ninguno — es una brecha de completitud documental, no de validez de lo ya calculado.
+
+**Remediación sugerida:** ampliar la sección de limitaciones con estos tres puntos, idealmente en conjunto con (no necesariamente después de) la remediación de C.2/C.5/B.1, para que la documentación quede sincronizada con el estado real del proyecto.
+
+---
+
+### F.4 — Claridad para la audiencia
+**Severidad:** — **SIN HALLAZGO**
+
+**Descripción:** se evaluó si la documentación sirve tanto a un lector técnico (recruiter/ingeniero) como a uno con formación económica pero no necesariamente técnica.
+
+**Evidencia:** `README.md` funciona como resumen ejecutivo denso pero legible; `notebooks/informe_completo.ipynb` provee el recorrido narrativo completo con explicaciones accesibles de ARIMA/GARCH y ejemplos visuales antes de cada hallazgo cuantitativo. La combinación de ambos documentos, con roles explícitamente diferenciados (el propio README lo aclara: *"Este README es el resumen de vitrina... el recorrido narrativo completo... está en el notebook"*), cubre razonablemente ambas audiencias sin que ninguna quede desatendida.
+
+**Impacto en conclusiones:** ninguno.
+
+**Remediación sugerida:** ninguna acción requerida.
+
+---
 
 ## FASE G — Posicionamiento del Proyecto
 
-*(pendiente — no evaluada en esta ronda de auditoría)*
+### G.1 — Consistencia con la literatura profesional
+**Severidad:** — **SIN HALLAZGO**
+
+**Descripción:** se evaluó si el hallazgo central del proyecto (previsibilidad de la inflación ligada a estabilidad/nivel de ingreso) es consistente con, contradice, o reclama indebidamente novedad frente a la literatura de pronóstico de inflación ya establecida.
+
+**Evidencia:** el hallazgo es consistente con Pincheira & Medel, *"The Elusive Predictive Ability of Global Inflation"*, y con Atkeson & Ohanian (2001) — ya citado explícitamente en `README.md` (sección "Trabajo futuro") y usado como referencia en el hallazgo C.5 de esta misma auditoría. El proyecto replica un patrón ya documentado en la literatura, sobre un panel más amplio (188 países) y con un proceso más transparente (código y datos públicos, auto-auditoría), sin contradecir el estado del arte ni reclamar un hallazgo original que no lo sea.
+
+**Impacto en conclusiones:** ninguno — refuerza la credibilidad del hallazgo central al situarlo dentro de un cuerpo de evidencia previo, no en aislamiento.
+
+**Remediación sugerida:** ninguna acción requerida sobre el hallazgo en sí (ver G.2 para una mejora de presentación relacionada).
+
+---
+
+### G.2 — Originalidad reclamada vs. aporte real
+**Severidad:** 🔵 **OBSERVACIÓN**
+
+**Descripción:** el proyecto no reclama originalidad metodológica (ARIMA/GARCH son técnicas estándar, declaradas como tales) — su aporte real es la combinación de escala multi-país, transparencia de proceso de punta a punta, y auto-auditoría metodológica, que sí está bien delimitada y no se sobre-vende en ningún documento del repo.
+
+**Evidencia:** `README.md` no usa lenguaje de "primero en" o "novedoso"; encuadra el proyecto explícitamente como una pregunta aplicada sobre un método conocido. No existe, sin embargo, una sección que compare explícitamente el proyecto contra la literatura citada (Pincheira/Medel, Atkeson-Ohanian) — la conexión existe (ver G.1) pero está repartida entre "Trabajo futuro" y esta auditoría, no consolidada en un solo lugar visible para un lector académico.
+
+**Impacto en conclusiones:** ninguno.
+
+**Remediación sugerida:** agregar una sección breve "Trabajos relacionados" en `README.md` o el notebook, situando explícitamente el proyecto frente a Pincheira/Medel y Atkeson-Ohanian — mejora de percepción de rigor académico, no una corrección de fondo.
+
+---
+
+### G.3 — Riesgo de sobre-afirmación
+**Severidad:** — **SIN HALLAZGO**
+
+**Descripción:** se evaluó si el tono del `README.md` reclama más de lo que la evidencia del proyecto sostiene.
+
+**Evidencia:** el documento encuadra la pregunta de investigación con humildad explícita (*"el objetivo no es predecir la inflación"*), califica el hallazgo central con precisión (*"sobrevive a cuatro intentos independientes de tirarlo abajo"*, no "está probado" sin matices), declara abiertamente la incertidumbre del ranking país-a-país como una limitación central del propio hallazgo insignia (hallazgo 5), y presenta la decisión de ingeniería `joblib` vs. PySpark con su justificación cuantitativa, sin lenguaje promocional. No se encontró ninguna afirmación en `README.md` o el notebook que no esté respaldada por un informe o recálculo verificable.
+
+**Impacto en conclusiones:** ninguno.
+
+**Remediación sugerida:** ninguna acción requerida — mantener este estándar de tono en futuras actualizaciones de la documentación.
 
 ---
 
@@ -444,7 +534,36 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 | E.2 | Reproducibilidad | Cobertura de dependencias | Sin hallazgo (menor) | Confirmado, cantidad corregida a 121 |
 | E.3 | Reproducibilidad | Rutas hardcodeadas | Sin hallazgo | Confirmado, cero coincidencias |
 | E.4 | Reproducibilidad | Notebook y 2 artefactos legacy no cubiertos por `run_pipeline.py` | 🟡 Menor | Confirmado empíricamente (git status tras corrida limpia) |
+| F.1 | Documentación | Cifra de Venezuela ("272%" truncado) | Sin hallazgo | No se confirmó — el README ya dice 344.272% |
+| F.2 | Documentación | Afirmaciones del README vs. evidencia recalculada | Sin hallazgo | Los 7 p-valores + R² + n citados, exactos |
+| F.3 | Documentación | Limitaciones no incluyen hallazgos de esta auditoría | 🟡 Menor | Confirmado — C.2, C.5 y alcance de B.1 ausentes |
+| F.4 | Documentación | Claridad para audiencia técnica y económica | Sin hallazgo | Confirmado — README + notebook con roles diferenciados |
+| G.1 | Posicionamiento | Consistencia con literatura (Pincheira/Medel, Atkeson-Ohanian) | Sin hallazgo | Confirmado, ya citado en README y en C.5 |
+| G.2 | Posicionamiento | Originalidad reclamada vs. aporte real | 🔵 Observación | Bien delimitado; falta sección "Trabajos relacionados" |
+| G.3 | Posicionamiento | Riesgo de sobre-afirmación en el tono | Sin hallazgo | Confirmado — tono medido, sin lenguaje promocional |
 
-**Totales por severidad (Fases A-E):** 🟠 Significativo: 4 (A.3, B.1 —mismo problema raíz—, C.2, C.5) · 🟡 Menor: 2 (A.6, E.4) · 🔵 Observación: 8 · Sin hallazgo (fortaleza/confirmado): 7.
+**Totales por severidad (Fases A-G, auditoría completa):** 🟠 Significativo: 4 (A.3, B.1 —mismo problema raíz—, C.2, C.5) · 🟡 Menor: 3 (A.6, E.4, F.3) · 🔵 Observación: 8 (A.5, B.5, C.1, C.3, C.4, D.1, D.4, G.2) · Sin hallazgo (fortaleza/confirmado/no-confirmado): 15 (A.1, A.2, B.2, B.3, D.2, D.3, D.5, E.1, E.2, E.3, F.1, F.2, F.4, G.1, G.3).
 
-**Ningún hallazgo de estas rondas es CRÍTICO** — ninguno invalida un resultado ya publicado en `reports/analisis_A/B/C`, `auditoria_metodologica.md` o `robustez_multivariado.md`. Los cuatro hallazgos SIGNIFICATIVO son, en los cuatro casos, sobre **alcance o rigor no documentado** (series excluidas sin explicar por qué, GARCH corriendo sobre residuos no filtrados, benchmark único no necesariamente el más exigente), no sobre errores en lo ya calculado y reportado. **Fase E queda completa** (E.1-E.4): la reproducibilidad end-to-end se verificó de la forma más exigente posible (clon externo + venv nuevo + re-descarga) y resultó impecable para el pipeline cuantitativo; el único hallazgo de esta fase es de alcance de documentación (notebook y 2 artefactos legacy fuera de `run_pipeline.py`), no de corrección. Fases F y G siguen sin evaluar.
+**Total de puntos de control evaluados: 30** (4+3+8+15; no incluye C.6, referencia cruzada a B.1 sin severidad propia).
+
+---
+
+## Dictamen final
+
+**Opinión: favorable, con observaciones.**
+
+Sobre las 7 fases evaluadas (A-G) y los 30 puntos de control examinados: **cero hallazgos críticos**. Ningún hallazgo de esta auditoría invalida, revierte o pone en duda la validez de un resultado ya publicado en `reports/analisis_A_previsibilidad.md`, `analisis_B_estructura.md`, `analisis_C_volatilidad.md`, `auditoria_metodologica.md` o `robustez_multivariado.md`. El hallazgo insignia del proyecto —el gradiente de previsibilidad por nivel de ingreso— fue puesto a prueba de forma independiente en esta auditoría (D.2, D.3) y se sostiene: efecto grande (ε²=0.17), estadísticamente robusto ante corrección por multiplicidad, y no explicado por longitud de serie.
+
+Se identificaron **4 hallazgos SIGNIFICATIVO**, todos remediables y ninguno retroactivo:
+
+1. **A.3 / B.1** (mismo problema raíz) — el criterio de aptitud exige cero huecos internos absolutos, excluyendo 27 series con cobertura sustancial (61-616 meses) del panel modelado, sin que el alcance real de esta exclusión esté documentado.
+2. **C.2** — el 81% de los ARIMA convergidos tienen residuos con autocorrelación remanente, y GARCH se ajusta sobre ellos sin filtrar ni marcar la fracción afectada.
+3. **C.5** — el único benchmark de comparación es random walk puro; la literatura sugiere que un benchmark de media móvil sería más exigente y más apropiado para inflación específicamente.
+
+Ninguno de los tres remedia con un cambio trivial de una línea — los tres requieren una decisión de diseño (qué hacer con las series excluidas, si filtrar o no antes de GARCH, si agregar un segundo benchmark) que corresponde a una fase correctiva posterior, explícitamente fuera de alcance de esta auditoría.
+
+El resto de los hallazgos —3 MENOR (A.6, E.4, F.3) y 8 OBSERVACIÓN— son imprecisiones de documentación o mejoras de presentación sin impacto en la validez de las conclusiones. Un hecho notable de esta auditoría, sobre su propio proceso: a lo largo de las 7 fases, 6 puntos de control requirieron corrección de precisión respecto al brief original en el que se basaron (el reparto interno y los ejemplos de A.3, el ejemplo de Mozambique en A.6, el matiz de B.5, el ratio de D.3, la cantidad de paquetes de E.2) y uno (F.1) **no se confirmó en absoluto** al re-verificar contra el estado actual del repositorio. Ninguna de estas correcciones cambió la conclusión de ningún hallazgo. Esto es consistente con el estándar aplicado durante toda la auditoría: cada cifra citada en este documento fue recalculada o releída de la fuente antes de publicarse, no transcrita de un brief sin control cruzado.
+
+**Reproducibilidad (E.1)** se verificó con el estándar más exigente disponible — clon externo desde GitHub, entorno virtual nuevo, re-descarga de datos por red — y resultó perfecta: 9/9 pasos, reproducción byte a byte de cada resultado cuantitativo publicado.
+
+**Recomendación:** el proyecto puede presentarse como está, citando esta auditoría como evidencia de rigor y auto-crítica documentada. Se recomienda una fase correctiva que aborde los 4 hallazgos SIGNIFICATIVO antes de cualquier extensión del alcance del proyecto (más países, más indicadores, nuevos modelos), para no propagar el mismo criterio de exclusión de huecos o la misma falta de filtro pre-GARCH a un panel más grande.
