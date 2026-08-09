@@ -9,7 +9,8 @@
 **Nota de verificación:** cada hallazgo listado abajo fue re-verificado de forma independiente (releyendo el código citado, o recalculando la cifra desde `data/raw/Inflation-data.xlsx` / los parquets procesados) antes de incorporarlo a este documento. En los puntos donde la verificación encontró una cifra distinta a la reportada originalmente, se indica explícitamente **[cifra corregida en verificación]** con el valor original a continuación, para que quede trazable qué cambió y por qué. El resto de los hallazgos verificó exacto.
 
 - **Ronda Fases A-B** (2026-08-08): 4 correcciones — reparto interno de A.3 (9+27, no 12+24), ejemplos de puntos válidos de A.3 (columna equivocada), ejemplo de Mozambique en A.6 (serie no duplicada), matiz de B.5 (el README sí menciona el piso, parcialmente).
-- **Ronda Fase C-E** (2026-08-08): 2 correcciones menores de precisión — ratio de D.3 (3.16× no 3.2×) y cantidad de paquetes de E.2 (121 no "130+"). El resto (incluyendo los números más cargados de C.2: 520/640, 519, medianas 289.5/166.5, p=4.36e-29) verificó exacto.
+- **Ronda Fase C-E, parte 1** (2026-08-08): 2 correcciones menores de precisión — ratio de D.3 (3.16× no 3.2×) y cantidad de paquetes de E.2 (121 no "130+"). El resto (incluyendo los números más cargados de C.2: 520/640, 519, medianas 289.5/166.5, p=4.36e-29) verificó exacto.
+- **Ronda Fase E, parte 2 (E.1/E.4)** (2026-08-08): a diferencia de las rondas anteriores, E.1 y E.4 no fueron "hallazgos ya verificados" para formalizar — se ejecutaron de cero en esta sesión (clon real de GitHub a un directorio nuevo, venv nuevo, `data/raw` y `data/processed` borrados antes de correr para forzar una reproducción genuina, incluida la re-descarga por red). Los resultados de esa ejecución son la evidencia primaria de E.1 y E.4, no una re-verificación de un hallazgo preexistente.
 
 ## Clasificación de severidad
 
@@ -335,7 +336,49 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 
 ---
 
-## FASE E — Reproducibilidad *(parcial, en curso)*
+## FASE E — Reproducibilidad
+
+### E.1 — Reproducibilidad end-to-end en limpio
+**Severidad:** — **SIN HALLAZGO** (fortaleza, verificada con evidencia más fuerte que la ya publicada)
+
+**Descripción:** `README.md` ya afirmaba reproducibilidad byte a byte, pero esa verificación previa corrió `run_pipeline.py` **en el mismo checkout y el mismo entorno** que generó los resultados originales — no probaba que un tercero, clonando el repositorio de cero, pudiera reproducirlo. Para esta auditoría se ejecutó la prueba más exigente: clon real desde GitHub a un directorio nuevo, entorno virtual nuevo instalado desde `requirements.txt`, y borrado explícito de `data/raw/Inflation-data.xlsx` y de todos los `data/processed/*.parquet` **antes** de correr — forzando que incluso la descarga por red se ejecute de nuevo, no solo el cómputo.
+
+**Evidencia:**
+- Clon: `git clone https://github.com/MLEIV90/global-inflation-arima-garch.git` — exitoso, HEAD en `4535462` (último commit de la auditoría al momento de la prueba).
+- Entorno: `python -m venv` nuevo + `pip install -r requirements.txt` — **3m 27s**, sin errores; las 12 dependencias directas (`pandas, numpy, statsmodels, pmdarima, arch, joblib, scipy, openpyxl, matplotlib, seaborn, requests, pycountry`) importan correctamente.
+- Ejecución: `python run_pipeline.py` sobre el repo con `data/raw/` y `data/processed/` vacíos — **9/9 pasos OK, 17.0 minutos** (1019.5s), incluida la re-descarga real del Excel del Banco Mundial por red, sin ninguna intervención manual.
+- Comparación (`git status --short` dentro del clon limpio, después de la corrida): de **todos** los archivos que `run_pipeline.py` regenera — 5 parquets, 8 informes `.md`, todas las figuras `.png` de esos 8 informes — **cero diferencias**. Coincidencia byte a byte total.
+
+**Impacto en conclusiones:** ninguno — refuerza, con evidencia más rigurosa, la afirmación de reproducibilidad ya publicada en `README.md`.
+
+**Remediación sugerida:** ninguna acción requerida sobre el pipeline en sí. Sugerido: actualizar la nota de reproducibilidad de `README.md` para aclarar que la verificación original fue in-place y que esta (E.1) es la primera verificación desde un clon externo genuino, con el tiempo real (17.0 min, no 15.0 — la diferencia es esperable por variación de carga de red/CPU entre corridas, no una inconsistencia).
+
+---
+
+### E.4 — Pasos manuales ocultos / cobertura real de `run_pipeline.py`
+**Severidad:** 🟡 **MENOR**
+
+**Descripción:** se evaluó si `run_pipeline.py` cubre todo el flujo reproducible del proyecto con un solo comando, o si hay pasos que un tercero necesitaría conocer sin que estén documentados.
+
+**Evidencia:**
+
+1. **Los 5 scripts de diagnóstico (`fase1_*.py`…`fase5_*.py`) no son una dependencia oculta** — se confirmó por lectura de código que `src/05_etl_corregido.py` (el primer paso real del pipeline) no lee ningún archivo producido por esos 5 scripts; trabaja directo desde `data/raw/Inflation-data.xlsx`. Excluirlos de `run_pipeline.py` no rompe nada — es una exclusión segura, ya documentada en el propio `run_pipeline.py` y en `README.md`.
+
+2. **Dos artefactos versionados quedan huérfanos y `run_pipeline.py` no los regenera** — confirmado empíricamente (no solo por lectura de código) en la corrida de E.1: tras borrar todo `data/processed/` y correr el pipeline completo, `git status` mostró **`data/processed/calidad_series.parquet`** y **`data/processed/resultados_modelos.parquet`** como *eliminados*, no *modificados* — es decir, ningún paso de `run_pipeline.py` los vuelve a crear. Son producidos por `src/02_calidad_series.py` y `src/06_modelado_arima_garch.py` (la versión original de modelado, pre-walk-forward) respectivamente — ambos scripts deliberadamente fuera del pipeline por estar superados (documentado en `README.md`), pero sus **outputs siguen versionados en git** como si fueran vigentes. No se usan en ningún paso posterior, así que el impacto es bajo, pero un tercero que abra `calidad_series.parquet` esperando que refleje la lógica de calidad actual del proyecto encontraría un artefacto congelado en una versión temprana del ETL.
+
+3. **`notebooks/informe_completo.ipynb` no está en `run_pipeline.py` ni el comando para regenerarlo está documentado.** El notebook lee los parquets/figuras que sí genera el pipeline, así que su *contenido de código* nunca queda desactualizado — pero sus **outputs ejecutados** (las celdas ya corridas, las figuras embebidas) sólo se actualizan corriendo manualmente `jupyter nbconvert --to notebook --execute --inplace notebooks/informe_completo.ipynb`. Ese comando no aparece en `README.md` (que solo linkea al notebook, sección "Resumen ejecutivo") ni en la sección "Cómo reproducir". Un tercero que corra `run_pipeline.py` y luego mire el notebook está viendo outputs de una ejecución anterior, sin ninguna indicación de que hace falta un paso extra si quiere refrescarlos.
+
+4. **`reports/auditoria_integral.md` (este documento) no es reproducible por script** — es narrativa auditada manualmente, con recálculos puntuales ad-hoc para cada hallazgo. Esto es una decisión de diseño razonable (no todo documento de un proyecto tiene que ser un script), pero significa que la respuesta a "¿se reproduce todo con un comando?" es distinta según qué carpeta de `reports/` se mire.
+
+**Respuesta directa a la pregunta de la auditoría:** un tercero que clona el repo y corre `python run_pipeline.py` reproduce **correctamente y por completo** el pipeline cuantitativo (los 5 parquets vigentes + los 8 informes de análisis/auditoría/robustez con sus figuras — confirmado en E.1). **No** reproduce, sin un paso adicional no documentado, los outputs del notebook narrativo. Los 2 artefactos huérfanos (`calidad_series.parquet`, `resultados_modelos.parquet`) quedan tal como estén en el checkout de git, sin indicación de que están congelados.
+
+**Impacto en conclusiones:** ninguno sobre los resultados analíticos ya publicados. El impacto es sobre la experiencia de un tercero tratando de entender qué está vigente y qué no en `data/processed/` y en `reports/`.
+
+**Remediación sugerida (no implementar en esta fase):**
+- Agregar a `README.md` el comando de regeneración del notebook, o incorporarlo como paso opcional final de `run_pipeline.py`.
+- Eliminar del control de versiones (o mover a una carpeta `legacy/` explícita) `calidad_series.parquet` y `resultados_modelos.parquet`, ya que ningún script los regenera y no se usan en ningún paso posterior — mantenerlos en `data/processed/` junto a los artefactos vigentes invita a confundirlos con datos actuales.
+
+---
 
 ### E.2 — Cobertura de dependencias
 **Severidad:** — **SIN HALLAZGO** (observación menor)
@@ -397,9 +440,11 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 | D.3 | Estadística | Tamaño de efecto del gradiente de ingreso | Sin hallazgo (fortaleza) | ε²=0.17 confirmado; ratio corregido a 3.16× |
 | D.4 | Estadística | Robustez OLS (VIF) | 🔵 Observación | Confirmado, ya reportado por el proyecto |
 | D.5 | Estadística | Poder estadístico de hallazgos negativos | Sin hallazgo (menor) | Confirmado (n=79-172 según indicador) |
+| E.1 | Reproducibilidad | Reproducibilidad end-to-end desde clon limpio | Sin hallazgo (fortaleza) | Ejecutado de cero: 9/9 pasos OK, 17.0 min, 0 diferencias |
 | E.2 | Reproducibilidad | Cobertura de dependencias | Sin hallazgo (menor) | Confirmado, cantidad corregida a 121 |
 | E.3 | Reproducibilidad | Rutas hardcodeadas | Sin hallazgo | Confirmado, cero coincidencias |
+| E.4 | Reproducibilidad | Notebook y 2 artefactos legacy no cubiertos por `run_pipeline.py` | 🟡 Menor | Confirmado empíricamente (git status tras corrida limpia) |
 
-**Totales por severidad (Fases A-E):** 🟠 Significativo: 4 (A.3, B.1 —mismo problema raíz—, C.2, C.5) · 🟡 Menor: 1 (A.6) · 🔵 Observación: 8 · Sin hallazgo (fortaleza/confirmado): 5.
+**Totales por severidad (Fases A-E):** 🟠 Significativo: 4 (A.3, B.1 —mismo problema raíz—, C.2, C.5) · 🟡 Menor: 2 (A.6, E.4) · 🔵 Observación: 8 · Sin hallazgo (fortaleza/confirmado): 7.
 
-**Ningún hallazgo de estas rondas es CRÍTICO** — ninguno invalida un resultado ya publicado en `reports/analisis_A/B/C`, `auditoria_metodologica.md` o `robustez_multivariado.md`. Los cuatro hallazgos SIGNIFICATIVO son, en los cuatro casos, sobre **alcance o rigor no documentado** (series excluidas sin explicar por qué, GARCH corriendo sobre residuos no filtrados, benchmark único no necesariamente el más exigente), no sobre errores en lo ya calculado y reportado. Fase E queda parcial (E.1, E.4+ pendientes de una ronda futura); Fases F y G siguen sin evaluar.
+**Ningún hallazgo de estas rondas es CRÍTICO** — ninguno invalida un resultado ya publicado en `reports/analisis_A/B/C`, `auditoria_metodologica.md` o `robustez_multivariado.md`. Los cuatro hallazgos SIGNIFICATIVO son, en los cuatro casos, sobre **alcance o rigor no documentado** (series excluidas sin explicar por qué, GARCH corriendo sobre residuos no filtrados, benchmark único no necesariamente el más exigente), no sobre errores en lo ya calculado y reportado. **Fase E queda completa** (E.1-E.4): la reproducibilidad end-to-end se verificó de la forma más exigente posible (clon externo + venv nuevo + re-descarga) y resultó impecable para el pipeline cuantitativo; el único hallazgo de esta fase es de alcance de documentación (notebook y 2 artefactos legacy fuera de `run_pipeline.py`), no de corrección. Fases F y G siguen sin evaluar.
