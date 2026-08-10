@@ -55,12 +55,16 @@ Upper middle income    0.713257
 High income            0.543777
 ```
 
-**El gradiente se mantiene significativo** tras excluir las series contaminadas (p=1.14e-06). El impacto de estos 6 países sobre el hallazgo central es marginal en términos de significancia estadística — pero eso no exime al proyecto de excluirlos, ya que dos series claramente corruptas (copiadas de otro país) no deberían seguir contribuyendo al panel modelado, independientemente de si mueven o no la aguja del test.
+**El gradiente se mantiene significativo** tras excluir las series contaminadas (p=1.14e-06), incluso levemente más fuerte que el original (p=5.6e-07 con las 6 series incluidas). El impacto de estos 6 países sobre el hallazgo central es, medido directamente, nulo.
 
 **Nota sobre por qué la auditoría formal (A.1-A.6) no lo detectó**: A.6 buscó `Country Code` duplicado *dentro de una misma hoja* (36 casos encontrados, ej. Austria en `ppi_m` con dos vintages distintos bajo el mismo código) — un problema de *deduplicación intra-país*. Este hallazgo es distinto: son **dos países diferentes** con filas byte-idénticas — un problema de *contaminación inter-país* que ningún control de la auditoría original buscaba explícitamente. Queda documentado acá como una brecha de cobertura de la auditoría original, no como un error de ejecución de los controles que sí se hicieron.
 
-## Remediación sugerida (no implementada — este documento es solo diagnóstico)
+## Decisión de cierre (2026-08)
+
+Se evaluó explícitamente excluir del panel modelado las 6 series afectadas y re-correr Análisis A, contra documentar el hallazgo sin tocar el panel modelado. Se optó por **documentar, no remediar con exclusión**: el impacto ya está medido (no es una suposición) y es nulo sobre la conclusión central — el gradiente de ingreso se sostiene prácticamente igual con o sin estas series. El costo de una remediación de código (re-modelado, actualización de reportes derivados) no se justifica frente a un beneficio ya confirmado como cero. Documentado de forma prominente en `README.md` ("Limitaciones honestas") y en `notebooks/informe_completo.ipynb`, e incorporado a `reports/auditoria_integral.md` como hallazgo A.7, cerrado con esta misma decisión.
+
+**Trabajo futuro** (no remediación de código, sino investigación externa):
 
 1. Reportar el problema al Banco Mundial / consultar la versión más reciente del *Global Database of Inflation* por si ya fue corregido en una actualización posterior del archivo.
-2. Mientras no haya una fuente confiable para asignar la serie correcta a cada país, excluir del panel modelado las series de los países involucrados (marcar con un flag, no borrar filas, para trazabilidad) — no reemplazar por una de las dos series existentes, porque no se puede determinar cuál es la correcta.
+2. Investigar el par indeterminado (CZE/DJI) contra una fuente externa independiente (FRED, FMI/IFS) para determinar cuál de los dos países tiene la serie real — solo entonces tendría sentido corregir o excluir con confianza.
 3. Ampliar el control de A.6 para que la auditoría futura incluya explícitamente comparación inter-país, no solo intra-país por código repetido.
