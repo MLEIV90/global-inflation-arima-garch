@@ -126,6 +126,36 @@ Las 27 series con cobertura sustancial excluidas por tener aunque sea un solo hu
 
 ---
 
+### A.7 — Series país-a-país byte-idénticas en la fuente (hallazgo nuevo, post-cierre)
+**Severidad:** 🟠 **SIGNIFICATIVO** (no 🔴 crítico — ver justificación abajo)
+
+**Descripción:** detectado durante la remediación R1 (verificación del benchmark Atkeson-Ohanian) y confirmado con un diagnóstico dedicado (`reports/diagnostico_series_duplicadas.md`, `src/15_diagnostico_series_duplicadas.py`): 3 pares de países tienen la fila mensual de `hcpi_m` byte-idéntica en `data/raw/Inflation-data.xlsx` — imposible que sea un dato real, es evidencia de un error de copiado en la fuente del Banco Mundial.
+
+**Por qué A.6 no lo detectó**: A.6 buscó `Country Code` duplicado *dentro de la misma hoja* (mismo país, dos filas). Este es un problema distinto — *dos países diferentes* con filas idénticas — que ningún control de la auditoría original de Fase A cubría. Se documenta acá como brecha de cobertura, no como un error de los controles A.1-A.6 que sí se ejecutaron.
+
+**Evidencia (búsqueda exhaustiva sobre las 5 hojas mensuales, directo sobre el Excel crudo, no sobre el parquet procesado — confirma que el problema está en la fuente, no en el ETL):**
+
+| Par | Indicador | Meses idénticos | Cruza nivel de ingreso |
+|---|---|---|---|
+| FIN / GAB | hcpi | 663 | Sí — High vs. Upper middle income |
+| GBR / USA | hcpi | 663 | No — ambos High income |
+| CZE / DJI | hcpi | 411 | Sí — High vs. Lower middle income |
+
+Solo 3 pares en total, todos en `hcpi`; ninguno en `ecpi`, `fcpi`, `ccpi` ni `ppi`.
+
+**Forense (¿cuál país es el auténtico?)**, comparando la tasa YoY implícita del mensual compartido contra la hoja anual `hcpi_a` independiente de cada país: **FIN/GAB y GBR/USA tienen veredicto razonablemente claro** (FIN y GBR coinciden con su propia hoja anual a 0.03-0.05 puntos porcentuales; GAB y especialmente USA se apartan 0.37 y 1.34 puntos respectivamente) — evidencia circunstancial de que las filas de Gabón y Estados Unidos son la copia, no el original. **CZE/DJI queda indeterminado** (distancias casi iguales, 0.30 vs. 0.27). Esta es evidencia interna al mismo archivo (una hoja contra otra del mismo Excel), no una fuente de verdad externa — razonablemente convincente pero no una confirmación definitiva.
+
+**Impacto medido en el hallazgo central** (gradiente de previsibilidad por ingreso, Análisis A): se re-corrió Kruskal-Wallis sobre `rmse_arima_walkforward` de `hcpi` excluyendo los 6 países de los 3 pares. **El gradiente se mantiene significativo, e incluso ligeramente más fuerte**: H=30.39, p=1.14×10⁻⁶ (n=168) vs. el original H=31.85, p=5.62×10⁻⁷ (n=174) — la diferencia es marginal, dentro de lo esperable por quitar 6 de 174 observaciones. **El hallazgo central del proyecto no está invalidado.**
+
+**Por qué es SIGNIFICATIVO y no CRÍTICO**: la definición de este documento para 🔴 CRÍTICO es "invalida hallazgos o resultados ya publicados" — el Paso 3 mide exactamente eso y confirma que no lo invalida (el gradiente sobrevive con margen similar). Es SIGNIFICATIVO porque es un error de integridad de datos real, no documentado hasta ahora, que contamina 6 series del panel (incluyendo EE.UU. y Reino Unido, dos de los países más citados en el proyecto) con datos que no son los propios del país — independientemente de que no mueva la aguja del test agregado.
+
+**Remediación sugerida (no implementada — este hallazgo es solo diagnóstico):**
+1. Reportar el problema al Banco Mundial o verificar si una versión más reciente del archivo ya lo corrigió.
+2. Mientras no haya una fuente confiable para asignar la serie correcta, excluir del panel modelado (con flag de trazabilidad, no borrado) las series de los 6 países afectados en `hcpi` — no reemplazar por ninguna de las dos series existentes, ya que para CZE/DJI no se puede determinar cuál es la correcta, y aun para FIN/GAB y GBR/USA la evidencia es circunstancial, no definitiva.
+3. Ampliar el control de A.6 (o crear uno nuevo) para que la auditoría de rutina incluya explícitamente comparación de series inter-país, no solo intra-país por código repetido.
+
+---
+
 ## FASE B — Revisión de Código
 
 ### B.1 — Criterio de aptitud exige cero huecos internos absolutos (causa raíz de A.3)
@@ -523,6 +553,7 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 | A.3 | Datos | 27 series con cobertura sustancial excluidas por 1+ hueco | 🟠 Significativo | Cifras corregidas en verificación |
 | A.5 | Datos | Validación externa vs. tasa oficial | 🔵 Observación | Confirmado, consistente con Fase 4 |
 | A.6 | Datos | Heurística de deduplicación sacrifica actualidad | 🟡 Menor | Ejemplo MOZ corregido en verificación |
+| A.7 | Datos | 3 pares país-país con serie `hcpi` byte-idéntica en la fuente (hallazgo post-cierre) | 🟠 Significativo | Confirmado exhaustivo (5 hojas, Excel crudo); gradiente sobrevive exclusión (p=1.14e-06) |
 | B.1 | Código | Criterio de aptitud exige cero huecos absolutos (causa raíz de A.3) | 🟠 Significativo | Líneas de código confirmadas exactas |
 | B.2 | Código | Data leakage en walk-forward | Sin hallazgo | Confirmado exacto |
 | B.3 | Código | Determinismo y semillas | Sin hallazgo | Confirmado exacto |
@@ -550,11 +581,11 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 | G.2 | Posicionamiento | Originalidad reclamada vs. aporte real | 🔵 Observación | Bien delimitado; falta sección "Trabajos relacionados" |
 | G.3 | Posicionamiento | Riesgo de sobre-afirmación en el tono | Sin hallazgo | Confirmado — tono medido, sin lenguaje promocional |
 
-**Totales por severidad (Fases A-G, auditoría completa, estado post-remediación 2026-08):** 🟠 Significativo: 2 (A.3, B.1 —mismo problema raíz, sin remediar— y C.2 con trazabilidad remediada pero filtro pendiente) · 🟡 Menor: 1 (E.4, remediado parcialmente — artefactos legacy resueltos, notebook pendiente) · 🔵 Observación: 8 (A.5, B.5, C.1, C.3, C.4, D.1, D.4, G.2) · ✅ Remediado: 2 (C.5, F.3) · Sin hallazgo (fortaleza/confirmado/no-confirmado): 15 (A.1, A.2, B.2, B.3, D.2, D.3, D.5, E.1, E.2, E.3, F.1, F.2, F.4, G.1, G.3).
+**Totales por severidad (Fases A-G, auditoría completa, estado post-remediación 2026-08):** 🟠 Significativo: 3 (A.3, B.1 —mismo problema raíz, sin remediar—; C.2 con trazabilidad remediada pero filtro pendiente; A.7, hallazgo nuevo post-cierre, sin remediar) · 🟡 Menor: 1 (E.4, remediado parcialmente — artefactos legacy resueltos, notebook pendiente) · 🔵 Observación: 8 (A.5, B.5, C.1, C.3, C.4, D.1, D.4, G.2) · ✅ Remediado: 2 (C.5, F.3) · Sin hallazgo (fortaleza/confirmado/no-confirmado): 15 (A.1, A.2, B.2, B.3, D.2, D.3, D.5, E.1, E.2, E.3, F.1, F.2, F.4, G.1, G.3).
 
-**Total de puntos de control evaluados: 30** (2+1+8+2+15+A.6 ver nota; no incluye C.6, referencia cruzada a B.1 sin severidad propia). A.6 permanece 🟡 Menor, sin remediar en este lote — no estaba en su alcance.
+**Total de puntos de control evaluados: 31** (3+1+8+2+15+A.6 ver nota; no incluye C.6, referencia cruzada a B.1 sin severidad propia). A.6 permanece 🟡 Menor, sin remediar en este lote — no estaba en su alcance. El total sube de 30 a 31 respecto al cierre original por la incorporación de A.7 (hallazgo nuevo, detectado después del cierre formal de la auditoría, durante la remediación R1).
 
-**Nota de trazabilidad:** esta matriz refleja el estado original de la auditoría (severidad de hallazgo) más el resultado de dos rondas de remediación posteriores — R1/R2/R5/R6 (2026-08, ver `reports/remediacion_R1_atkeson_ohanian.md` y `reports/remediacion_R2_residuos_no_blancos.md`). Las severidades originales no se sobrescriben, se anota el estado nuevo junto a la evidencia original en cada sección de detalle.
+**Nota de trazabilidad:** esta matriz refleja el estado original de la auditoría (severidad de hallazgo) más el resultado de dos rondas de remediación posteriores — R1/R2/R5/R6 (2026-08, ver `reports/remediacion_R1_atkeson_ohanian.md` y `reports/remediacion_R2_residuos_no_blancos.md`) — y un hallazgo nuevo (A.7, `reports/diagnostico_series_duplicadas.md`) surgido durante esa remediación, incorporado post-cierre. Las severidades originales no se sobrescriben, se anota el estado nuevo junto a la evidencia original en cada sección de detalle.
 
 ---
 
@@ -562,7 +593,7 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 
 **Opinión: favorable, con observaciones.**
 
-Sobre las 7 fases evaluadas (A-G) y los 30 puntos de control examinados: **cero hallazgos críticos**. Ningún hallazgo de esta auditoría invalida, revierte o pone en duda la validez de un resultado ya publicado en `reports/analisis_A_previsibilidad.md`, `analisis_B_estructura.md`, `analisis_C_volatilidad.md`, `auditoria_metodologica.md` o `robustez_multivariado.md`. El hallazgo insignia del proyecto —el gradiente de previsibilidad por nivel de ingreso— fue puesto a prueba de forma independiente en esta auditoría (D.2, D.3) y se sostiene: efecto grande (ε²=0.17), estadísticamente robusto ante corrección por multiplicidad, y no explicado por longitud de serie.
+Sobre las 7 fases evaluadas (A-G) y los 31 puntos de control examinados (30 del cierre original + A.7, incorporado post-cierre): **cero hallazgos críticos**. Ningún hallazgo de esta auditoría invalida, revierte o pone en duda la validez de un resultado ya publicado en `reports/analisis_A_previsibilidad.md`, `analisis_B_estructura.md`, `analisis_C_volatilidad.md`, `auditoria_metodologica.md` o `robustez_multivariado.md`. El hallazgo insignia del proyecto —el gradiente de previsibilidad por nivel de ingreso— fue puesto a prueba de forma independiente en esta auditoría (D.2, D.3) y luego otra vez por A.7 (excluyendo 6 países con series `hcpi` contaminadas) y se sostiene en las tres verificaciones: efecto grande (ε²=0.17), estadísticamente robusto ante corrección por multiplicidad, no explicado por longitud de serie, y no explicado por la contaminación de datos de A.7 (p=1.14×10⁻⁶ excluyendo, vs. p=5.62×10⁻⁷ original).
 
 Se identificaron **4 hallazgos SIGNIFICATIVO** originalmente. **Estado post-remediación (2026-08, lote R1/R2/R5/R6)**:
 
@@ -572,8 +603,10 @@ Se identificaron **4 hallazgos SIGNIFICATIVO** originalmente. **Estado post-reme
 
 De los 4 originales, 1 queda totalmente remediado (C.5), 1 parcialmente (C.2, con trazabilidad pero sin el filtro de fondo) y 1 sin remediar (A.3/B.1, documentado pero no corregido en el código) — todos por decisión explícita de alcance de este lote, no por limitación técnica.
 
+**Hallazgo nuevo post-cierre — A.7**: durante la remediación R1 se detectaron 3 pares de países con la serie mensual `hcpi` byte-idéntica en el Excel crudo del Banco Mundial (FIN/GAB, GBR/USA, CZE/DJI) — un error de la fuente, confirmado exhaustivo sobre las 5 hojas mensuales. Se clasifica 🟠 SIGNIFICATIVO, no 🔴 CRÍTICO: se midió explícitamente el impacto en el hallazgo central (Kruskal-Wallis excluyendo los 6 países afectados) y el gradiente se mantiene, incluso ligeramente más fuerte (p=1.14×10⁻⁶ vs. p=5.62×10⁻⁷ original) — no invalida ningún resultado publicado, que es el criterio que distingue CRÍTICO de SIGNIFICATIVO en este documento. Es significativo porque es un error de integridad de datos real, no documentado hasta ahora, que afecta 6 series (incluyendo EE.UU. y Reino Unido). Análisis forense (`reports/diagnostico_series_duplicadas.md`) da veredicto razonablemente claro para 2 de los 3 pares (Gabón y EE.UU. como las filas "víctima", copiadas de Finlandia y Reino Unido respectivamente) e indeterminado para el tercero (CZE/DJI). No remediado en el código — queda documentado, no corregido, ya que no hay forma confiable de reconstruir la serie real de los países afectados con la evidencia disponible en este repositorio.
+
 El resto de los hallazgos —ahora 1 MENOR sin remediar (A.6), E.4 remediado parcialmente (artefactos legacy eliminados, notebook pendiente), F.3 remediado, y 8 OBSERVACIÓN— son imprecisiones de documentación o mejoras de presentación sin impacto en la validez de las conclusiones. Un hecho notable de esta auditoría, sobre su propio proceso: a lo largo de las 7 fases, 6 puntos de control requirieron corrección de precisión respecto al brief original en el que se basaron (el reparto interno y los ejemplos de A.3, el ejemplo de Mozambique en A.6, el matiz de B.5, el ratio de D.3, la cantidad de paquetes de E.2) y uno (F.1) **no se confirmó en absoluto** al re-verificar contra el estado actual del repositorio. Ninguna de estas correcciones cambió la conclusión de ningún hallazgo. Esto es consistente con el estándar aplicado durante toda la auditoría: cada cifra citada en este documento fue recalculada o releída de la fuente antes de publicarse, no transcrita de un brief sin control cruzado. Ese mismo estándar se aplicó durante la remediación: el resultado de C.5 se reportó tal como salió (contradiciendo la hipótesis original) en vez de forzar la conclusión esperada.
 
 **Reproducibilidad (E.1)** se verificó con el estándar más exigente disponible — clon externo desde GitHub, entorno virtual nuevo, re-descarga de datos por red — y resultó perfecta: 9/9 pasos, reproducción byte a byte de cada resultado cuantitativo publicado.
 
-**Recomendación:** el proyecto puede presentarse como está, citando esta auditoría como evidencia de rigor y auto-crítica documentada. Del lote de remediación de 2026-08, C.5 y F.3 quedan totalmente resueltos; C.2 tiene trazabilidad pero no el filtro de fondo; A.3/B.1 sigue sin remediar en el código. Se recomienda que una futura fase correctiva aborde específicamente **A.3/B.1** (decidir si relajar el criterio de cero-huecos) y complete **C.2** (filtrar o repetir el análisis de persistencia restringido a residuos limpios) antes de cualquier extensión del alcance del proyecto (más países, más indicadores, nuevos modelos), para no propagar el mismo criterio de exclusión de huecos o la misma falta de filtro pre-GARCH a un panel más grande.
+**Recomendación:** el proyecto puede presentarse como está, citando esta auditoría como evidencia de rigor y auto-crítica documentada. Del lote de remediación de 2026-08, C.5 y F.3 quedan totalmente resueltos; C.2 tiene trazabilidad pero no el filtro de fondo; A.3/B.1 sigue sin remediar en el código; A.7 (nuevo) queda documentado pero sin remediar. Se recomienda que una futura fase correctiva aborde específicamente **A.3/B.1** (decidir si relajar el criterio de cero-huecos), complete **C.2** (filtrar o repetir el análisis de persistencia restringido a residuos limpios), y **A.7** (excluir con flag de trazabilidad las 6 series `hcpi` de FIN/GAB/GBR/USA/CZE/DJI del panel modelado, y reportar el problema al Banco Mundial) antes de cualquier extensión del alcance del proyecto (más países, más indicadores, nuevos modelos), para no propagar el mismo criterio de exclusión de huecos, la misma falta de filtro pre-GARCH, o la misma contaminación de datos fuente a un panel más grande.
