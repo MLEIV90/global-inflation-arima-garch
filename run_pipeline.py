@@ -25,6 +25,7 @@ PASOS = [
     ("01_descarga_datos.py", "Descarga el Excel del Banco Mundial a data/raw/ (si no existe ya)"),
     ("05_etl_corregido.py", "ETL corregido: índice/tasa por Indicator Type, ceros de Venezuela, doble transformación, flags"),
     ("06b_modelado_robusto.py", "Modelado ARIMA+GARCH con walk-forward + baseline naive (el más lento, ~10-15 min)"),
+    ("13_benchmark_atkeson_ohanian.py", "Remediación C.5: agrega benchmark Atkeson-Ohanian (media móvil 12m) y re-propaga a enriquecidos"),
     ("07_enriquecer_clasificacion.py", "Enriquecimiento con región/nivel de ingreso del Banco Mundial"),
     ("08_analisis_previsibilidad.py", "Análisis A: previsibilidad (ranking, gradiente de ingreso, hiperinflación)"),
     ("09_analisis_estructura.py", "Análisis B: estructura (headline vs. componentes)"),
