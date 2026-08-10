@@ -4,7 +4,7 @@
 
 **Fecha:** 2026-08-08
 **Alcance:** integridad de datos, revisión de código, metodología, validez estadística, reproducibilidad, documentación, posicionamiento del proyecto.
-**Naturaleza:** auditoría puramente diagnóstica. Ningún hallazgo de este documento fue remediado — la remediación queda para una fase correctiva posterior, explícitamente fuera de alcance acá.
+**Naturaleza:** auditoría originalmente puramente diagnóstica (ningún hallazgo remediado al momento de publicarse). **Actualización (2026-08)**: un lote de remediación posterior (R1, R2, R5, R6) implementó correcciones sobre 4 de los 30 puntos de control — ver el estado actualizado marcado junto a cada hallazgo (C.5 ✅, F.3 ✅, C.2 y E.4 parcial) y la sección "Dictamen final" al pie de este documento. El resto de los hallazgos permanece sin remediar, tal como se documentó originalmente.
 
 **Nota de verificación:** cada hallazgo listado abajo fue re-verificado de forma independiente (releyendo el código citado, o recalculando la cifra desde `data/raw/Inflation-data.xlsx` / los parquets procesados) antes de incorporarlo a este documento. En los puntos donde la verificación encontró una cifra distinta a la reportada originalmente, se indica explícitamente **[cifra corregida en verificación]** con el valor original a continuación, para que quede trazable qué cambió y por qué. El resto de los hallazgos verificó exacto.
 
@@ -221,6 +221,8 @@ El criterio exige **cero huecos internos absolutos**, sin importar cuán largo s
 
 **Remediación sugerida (no implementar en esta fase):** filtrar (o al menos marcar con un flag `arima_bien_especificado`) las series con Ljung-Box significativo antes de interpretarlas en el contexto de GARCH; reportar la fracción afectada en `reports/analisis_C_volatilidad.md`; considerar repetir el análisis de persistencia GARCH restringido a las ~120 series (19%) con residuos limpios, como chequeo de robustez.
 
+**Actualización (2026-08, `src/14_flag_residuos_no_blancos.py`):** se implementó la parte de trazabilidad de la remediación sugerida — flag `residuos_no_blancos` agregado a `resultados_enriquecidos.parquet`, cifra confirmada exacta (519/626, 82.9%) y documentada en README/notebook con el matiz del artefacto de tamaño de muestra (detalle en `reports/remediacion_R2_residuos_no_blancos.md`). **No se mantiene como remediado en su totalidad**: no se filtró ni se repitió el análisis de persistencia GARCH restringido a las series con residuos limpios — el hallazgo sigue abierto como 🟠 SIGNIFICATIVO en cuanto a esa parte.
+
 ---
 
 ### C.3 — GARCH(1,1) simétrico, sin variantes asimétricas
@@ -250,7 +252,9 @@ El criterio exige **cero huecos internos absolutos**, sin importar cuán largo s
 ---
 
 ### C.5 — Baseline de comparación potencialmente sub-óptimo
-**Severidad:** 🟠 **SIGNIFICATIVO**
+**Severidad:** 🟠 **SIGNIFICATIVO** → ✅ **REMEDIADO** (2026-08, `src/13_benchmark_atkeson_ohanian.py`)
+
+**Estado de la remediación:** se implementó el benchmark Atkeson-Ohanian (media móvil de 12 meses) sobre la misma ventana walk-forward, sin re-ajustar ningún ARIMA/GARCH, con verificación explícita de que las columnas preexistentes de `resultados_modelos_robusto.parquet`/`resultados_enriquecidos.parquet` quedaron idénticas. **El resultado contradice la hipótesis que motivó este hallazgo**: ARIMA le gana a AO en 634/640 series (**99.1%**), muy por encima del 63.1% contra random walk — AO resultó ser el benchmark *más débil*, no el más exigente, en este panel. La razón: la ventana walk-forward evalúa los últimos 24 meses de cada serie (mayormente hasta 2025-03), que coincide con la desinflación post-pandemia — un cambio de tendencia marcado ante el cual una media móvil de 12 meses reacciona con rezago severo, mientras el random walk se ajusta cada mes. La cifra de referencia para el aporte de ARIMA sigue siendo el 63.1% contra random walk; la comparación contra AO no la reduce, la literatura citada (AO es difícil de superar en regímenes *estables*) simplemente no aplica a esta ventana temporal específica. Detalle completo, incluyendo dos observaciones adicionales encontradas al implementarlo (3 pares de países con la serie `hcpi` byte-idéntica en la fuente, y una serie con índice congelado), en `reports/remediacion_R1_atkeson_ohanian.md`.
 
 **Descripción:** el único benchmark contra el que se mide el aporte de ARIMA es el random walk ("el próximo valor es el último observado"). La literatura de pronóstico de inflación (Atkeson & Ohanian, 2001, *"Are Phillips Curves Useful for Forecasting Inflation?"*) documenta que un promedio móvil de los últimos 12 meses suele ser un benchmark más difícil de superar que el random walk puro, para series de inflación específicamente.
 
@@ -356,7 +360,9 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 ---
 
 ### E.4 — Pasos manuales ocultos / cobertura real de `run_pipeline.py`
-**Severidad:** 🟡 **MENOR**
+**Severidad:** 🟡 **MENOR** → ✅ **REMEDIADO PARCIALMENTE** (2026-08)
+
+**Estado de la remediación:** de los dos puntos con remediación sugerida, se resolvió el **punto 2** (artefactos huérfanos): `calidad_series.parquet` y `resultados_modelos.parquet` se **eliminaron del control de versiones** (no se agregaron al pipeline — regenerarían un modelado ya superseded por `06b`, sin aportar nada). Los scripts que los generaban (`02_calidad_series.py`, `06_modelado_arima_garch.py`) se conservan para correr manualmente si hace falta reproducirlos por curiosidad histórica, documentado en `README.md`, sección "Scripts — pipeline vs. diagnóstico". Además, `run_pipeline.py` ahora sí cubre `src/13_benchmark_atkeson_ohanian.py` y `src/14_flag_residuos_no_blancos.py` (los dos scripts de esta remediación) — no quedan como artefactos huérfanos nuevos. El **punto 3** (regeneración de `notebooks/informe_completo.ipynb` no cubierta por `run_pipeline.py` ni documentada en "Cómo reproducir") **sigue sin remediar** — no estaba en el alcance de este lote de remediación.
 
 **Descripción:** se evaluó si `run_pipeline.py` cubre todo el flujo reproducible del proyecto con un solo comando, o si hay pasos que un tercero necesitaría conocer sin que estén documentados.
 
@@ -437,7 +443,9 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 ---
 
 ### F.3 — Completitud de la sección de limitaciones
-**Severidad:** 🟡 **MENOR**
+**Severidad:** 🟡 **MENOR** → ✅ **REMEDIADO** (2026-08, `README.md`, sección "Limitaciones honestas")
+
+**Estado de la remediación:** se agregaron los tres puntos exactos sugeridos — C.2 (con la cifra actualizada 519/626, 82.9%, y el matiz de tamaño de muestra), C.5 (con el resultado real del benchmark AO, 99.1% vs. 63.1%) y el alcance de A.3/B.1 (cuantificado: ~27 series con cobertura sustancial excluidas por el criterio de cero-huecos, con los ejemplos de Irlanda/Tailandia).
 
 **Descripción:** la sección "Limitaciones honestas" de `README.md` es sustancialmente más completa que lo habitual en un proyecto de este tipo (declara panel no balanceado, series sin GARCH, un solo tipo de modelo, estacionalidad no explotada, incertidumbre del ranking) — pero fue escrita antes de que existiera esta auditoría integral, así que no incluye los hallazgos SIGNIFICATIVO que la propia auditoría encontró después.
 
@@ -520,10 +528,10 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 | B.3 | Código | Determinismo y semillas | Sin hallazgo | Confirmado exacto |
 | B.5 | Código | Consistencia de parámetros código↔documentación | 🔵 Observación | Matiz agregado en verificación |
 | C.1 | Metodología | Transformación log-diff sin test de sensibilidad | 🔵 Observación | Confirmado, ya defendido con evidencia |
-| C.2 | Metodología | ARIMA con residuos autocorrelacionados propagado a GARCH sin filtrar | 🟠 Significativo | Confirmado exacto (520/640, 519, p=4.36e-29) |
+| C.2 | Metodología | ARIMA con residuos autocorrelacionados propagado a GARCH sin filtrar | 🟠 Significativo (trazabilidad remediada, filtro pendiente) | Confirmado exacto (520/640, 519, p=4.36e-29); flag agregado en R2 |
 | C.3 | Metodología | GARCH(1,1) sin variantes asimétricas | 🔵 Observación | Confirmado, ya declarado en README |
 | C.4 | Metodología | Re-estimación cada 6 pasos, no cada mes | 🔵 Observación | Confirmado, ya acotado por auditoría previa |
-| C.5 | Metodología | Baseline random walk, no media móvil 12m (Atkeson-Ohanian) | 🟠 Significativo | Confirmado — único benchmark en el código |
+| C.5 | Metodología | Baseline random walk, no media móvil 12m (Atkeson-Ohanian) | ✅ Remediado | AO agregado — resultado opuesto a la hipótesis (99.1% vs. 63.1%) |
 | C.6 | Metodología | Tratamiento de huecos — ver B.1 | — | Referencia cruzada |
 | D.1 | Estadística | Supuestos de tests no-paramétricos | 🔵 Observación | Confirmado, buena práctica ya aplicada |
 | D.2 | Estadística | Multiplicidad de tests (Bonferroni) | Sin hallazgo (fortaleza) | Confirmado, con matiz sobre coeficiente OLS p=0.017 |
@@ -533,18 +541,20 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 | E.1 | Reproducibilidad | Reproducibilidad end-to-end desde clon limpio | Sin hallazgo (fortaleza) | Ejecutado de cero: 9/9 pasos OK, 17.0 min, 0 diferencias |
 | E.2 | Reproducibilidad | Cobertura de dependencias | Sin hallazgo (menor) | Confirmado, cantidad corregida a 121 |
 | E.3 | Reproducibilidad | Rutas hardcodeadas | Sin hallazgo | Confirmado, cero coincidencias |
-| E.4 | Reproducibilidad | Notebook y 2 artefactos legacy no cubiertos por `run_pipeline.py` | 🟡 Menor | Confirmado empíricamente (git status tras corrida limpia) |
+| E.4 | Reproducibilidad | Notebook y 2 artefactos legacy no cubiertos por `run_pipeline.py` | 🟡 Menor (parcial: artefactos legacy remediados, notebook pendiente) | Confirmado empíricamente (git status tras corrida limpia); 2 parquets huérfanos eliminados en R5 |
 | F.1 | Documentación | Cifra de Venezuela ("272%" truncado) | Sin hallazgo | No se confirmó — el README ya dice 344.272% |
 | F.2 | Documentación | Afirmaciones del README vs. evidencia recalculada | Sin hallazgo | Los 7 p-valores + R² + n citados, exactos |
-| F.3 | Documentación | Limitaciones no incluyen hallazgos de esta auditoría | 🟡 Menor | Confirmado — C.2, C.5 y alcance de B.1 ausentes |
+| F.3 | Documentación | Limitaciones no incluyen hallazgos de esta auditoría | ✅ Remediado | Confirmado — C.2, C.5 y alcance de B.1 ausentes; agregados en R6 |
 | F.4 | Documentación | Claridad para audiencia técnica y económica | Sin hallazgo | Confirmado — README + notebook con roles diferenciados |
 | G.1 | Posicionamiento | Consistencia con literatura (Pincheira/Medel, Atkeson-Ohanian) | Sin hallazgo | Confirmado, ya citado en README y en C.5 |
 | G.2 | Posicionamiento | Originalidad reclamada vs. aporte real | 🔵 Observación | Bien delimitado; falta sección "Trabajos relacionados" |
 | G.3 | Posicionamiento | Riesgo de sobre-afirmación en el tono | Sin hallazgo | Confirmado — tono medido, sin lenguaje promocional |
 
-**Totales por severidad (Fases A-G, auditoría completa):** 🟠 Significativo: 4 (A.3, B.1 —mismo problema raíz—, C.2, C.5) · 🟡 Menor: 3 (A.6, E.4, F.3) · 🔵 Observación: 8 (A.5, B.5, C.1, C.3, C.4, D.1, D.4, G.2) · Sin hallazgo (fortaleza/confirmado/no-confirmado): 15 (A.1, A.2, B.2, B.3, D.2, D.3, D.5, E.1, E.2, E.3, F.1, F.2, F.4, G.1, G.3).
+**Totales por severidad (Fases A-G, auditoría completa, estado post-remediación 2026-08):** 🟠 Significativo: 2 (A.3, B.1 —mismo problema raíz, sin remediar— y C.2 con trazabilidad remediada pero filtro pendiente) · 🟡 Menor: 1 (E.4, remediado parcialmente — artefactos legacy resueltos, notebook pendiente) · 🔵 Observación: 8 (A.5, B.5, C.1, C.3, C.4, D.1, D.4, G.2) · ✅ Remediado: 2 (C.5, F.3) · Sin hallazgo (fortaleza/confirmado/no-confirmado): 15 (A.1, A.2, B.2, B.3, D.2, D.3, D.5, E.1, E.2, E.3, F.1, F.2, F.4, G.1, G.3).
 
-**Total de puntos de control evaluados: 30** (4+3+8+15; no incluye C.6, referencia cruzada a B.1 sin severidad propia).
+**Total de puntos de control evaluados: 30** (2+1+8+2+15+A.6 ver nota; no incluye C.6, referencia cruzada a B.1 sin severidad propia). A.6 permanece 🟡 Menor, sin remediar en este lote — no estaba en su alcance.
+
+**Nota de trazabilidad:** esta matriz refleja el estado original de la auditoría (severidad de hallazgo) más el resultado de dos rondas de remediación posteriores — R1/R2/R5/R6 (2026-08, ver `reports/remediacion_R1_atkeson_ohanian.md` y `reports/remediacion_R2_residuos_no_blancos.md`). Las severidades originales no se sobrescriben, se anota el estado nuevo junto a la evidencia original en cada sección de detalle.
 
 ---
 
@@ -554,16 +564,16 @@ Ver **B.1** (Fase B) — inconsistencia ya registrada entre el criterio document
 
 Sobre las 7 fases evaluadas (A-G) y los 30 puntos de control examinados: **cero hallazgos críticos**. Ningún hallazgo de esta auditoría invalida, revierte o pone en duda la validez de un resultado ya publicado en `reports/analisis_A_previsibilidad.md`, `analisis_B_estructura.md`, `analisis_C_volatilidad.md`, `auditoria_metodologica.md` o `robustez_multivariado.md`. El hallazgo insignia del proyecto —el gradiente de previsibilidad por nivel de ingreso— fue puesto a prueba de forma independiente en esta auditoría (D.2, D.3) y se sostiene: efecto grande (ε²=0.17), estadísticamente robusto ante corrección por multiplicidad, y no explicado por longitud de serie.
 
-Se identificaron **4 hallazgos SIGNIFICATIVO**, todos remediables y ninguno retroactivo:
+Se identificaron **4 hallazgos SIGNIFICATIVO** originalmente. **Estado post-remediación (2026-08, lote R1/R2/R5/R6)**:
 
-1. **A.3 / B.1** (mismo problema raíz) — el criterio de aptitud exige cero huecos internos absolutos, excluyendo 27 series con cobertura sustancial (61-616 meses) del panel modelado, sin que el alcance real de esta exclusión esté documentado.
-2. **C.2** — el 81% de los ARIMA convergidos tienen residuos con autocorrelación remanente, y GARCH se ajusta sobre ellos sin filtrar ni marcar la fracción afectada.
-3. **C.5** — el único benchmark de comparación es random walk puro; la literatura sugiere que un benchmark de media móvil sería más exigente y más apropiado para inflación específicamente.
+1. **A.3 / B.1** (mismo problema raíz) — **sin remediar**: el criterio de aptitud sigue exigiendo cero huecos internos absolutos, excluyendo ~27 series con cobertura sustancial (61-616 meses) del panel modelado. Se documentó cuantitativamente el alcance en README (F.3, remediado), pero no se cambió el criterio de aptitud en el código — queda como mejora futura.
+2. **C.2** — **remediado parcialmente**: se agregó el flag `residuos_no_blancos` (trazabilidad) y se documentó la fracción afectada (519/626, 82.9%, con el matiz de tamaño de muestra) en README y notebook. No se filtró ni se repitió el análisis de persistencia GARCH restringido a residuos limpios — el hallazgo de fondo (GARCH corre sobre residuos autocorrelacionados sin filtrar) sigue vigente.
+3. **C.5** — **remediado**: se agregó el benchmark Atkeson-Ohanian como segundo baseline. El resultado invirtió la hipótesis original: AO resultó ser el benchmark *más débil* (ARIMA gana 99.1% vs. 63.1% contra random walk), no el más exigente — atribuible a que la ventana de evaluación coincide con la desinflación post-pandemia, un régimen de cambio de tendencia que penaliza especialmente a una media móvil de 12 meses.
 
-Ninguno de los tres remedia con un cambio trivial de una línea — los tres requieren una decisión de diseño (qué hacer con las series excluidas, si filtrar o no antes de GARCH, si agregar un segundo benchmark) que corresponde a una fase correctiva posterior, explícitamente fuera de alcance de esta auditoría.
+De los 4 originales, 1 queda totalmente remediado (C.5), 1 parcialmente (C.2, con trazabilidad pero sin el filtro de fondo) y 1 sin remediar (A.3/B.1, documentado pero no corregido en el código) — todos por decisión explícita de alcance de este lote, no por limitación técnica.
 
-El resto de los hallazgos —3 MENOR (A.6, E.4, F.3) y 8 OBSERVACIÓN— son imprecisiones de documentación o mejoras de presentación sin impacto en la validez de las conclusiones. Un hecho notable de esta auditoría, sobre su propio proceso: a lo largo de las 7 fases, 6 puntos de control requirieron corrección de precisión respecto al brief original en el que se basaron (el reparto interno y los ejemplos de A.3, el ejemplo de Mozambique en A.6, el matiz de B.5, el ratio de D.3, la cantidad de paquetes de E.2) y uno (F.1) **no se confirmó en absoluto** al re-verificar contra el estado actual del repositorio. Ninguna de estas correcciones cambió la conclusión de ningún hallazgo. Esto es consistente con el estándar aplicado durante toda la auditoría: cada cifra citada en este documento fue recalculada o releída de la fuente antes de publicarse, no transcrita de un brief sin control cruzado.
+El resto de los hallazgos —ahora 1 MENOR sin remediar (A.6), E.4 remediado parcialmente (artefactos legacy eliminados, notebook pendiente), F.3 remediado, y 8 OBSERVACIÓN— son imprecisiones de documentación o mejoras de presentación sin impacto en la validez de las conclusiones. Un hecho notable de esta auditoría, sobre su propio proceso: a lo largo de las 7 fases, 6 puntos de control requirieron corrección de precisión respecto al brief original en el que se basaron (el reparto interno y los ejemplos de A.3, el ejemplo de Mozambique en A.6, el matiz de B.5, el ratio de D.3, la cantidad de paquetes de E.2) y uno (F.1) **no se confirmó en absoluto** al re-verificar contra el estado actual del repositorio. Ninguna de estas correcciones cambió la conclusión de ningún hallazgo. Esto es consistente con el estándar aplicado durante toda la auditoría: cada cifra citada en este documento fue recalculada o releída de la fuente antes de publicarse, no transcrita de un brief sin control cruzado. Ese mismo estándar se aplicó durante la remediación: el resultado de C.5 se reportó tal como salió (contradiciendo la hipótesis original) en vez de forzar la conclusión esperada.
 
 **Reproducibilidad (E.1)** se verificó con el estándar más exigente disponible — clon externo desde GitHub, entorno virtual nuevo, re-descarga de datos por red — y resultó perfecta: 9/9 pasos, reproducción byte a byte de cada resultado cuantitativo publicado.
 
-**Recomendación:** el proyecto puede presentarse como está, citando esta auditoría como evidencia de rigor y auto-crítica documentada. Se recomienda una fase correctiva que aborde los 4 hallazgos SIGNIFICATIVO antes de cualquier extensión del alcance del proyecto (más países, más indicadores, nuevos modelos), para no propagar el mismo criterio de exclusión de huecos o la misma falta de filtro pre-GARCH a un panel más grande.
+**Recomendación:** el proyecto puede presentarse como está, citando esta auditoría como evidencia de rigor y auto-crítica documentada. Del lote de remediación de 2026-08, C.5 y F.3 quedan totalmente resueltos; C.2 tiene trazabilidad pero no el filtro de fondo; A.3/B.1 sigue sin remediar en el código. Se recomienda que una futura fase correctiva aborde específicamente **A.3/B.1** (decidir si relajar el criterio de cero-huecos) y complete **C.2** (filtrar o repetir el análisis de persistencia restringido a residuos limpios) antes de cualquier extensión del alcance del proyecto (más países, más indicadores, nuevos modelos), para no propagar el mismo criterio de exclusión de huecos o la misma falta de filtro pre-GARCH a un panel más grande.
