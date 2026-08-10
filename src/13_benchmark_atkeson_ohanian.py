@@ -115,29 +115,23 @@ def main() -> None:
     print(f"Guardado: {RESULTADOS_PATH} ({len(actualizado)} filas, {len(actualizado.columns)} columnas)")
 
     # ---- Re-propagar a resultados_enriquecidos.parquet ----
-    enriquecidos_antes = pd.read_parquet(ENRIQUECIDOS_PATH) if ENRIQUECIDOS_PATH.exists() else None
-    columnas_enriquecidos_antes = enriquecidos_antes.columns.tolist() if enriquecidos_antes is not None else []
-
+    # 07_enriquecer_clasificacion.py reconstruye el archivo entero desde
+    # resultados_modelos_robusto.parquet (no lo parchea incrementalmente),
+    # así que la garantía de no-regresión ya está dada por la verificación
+    # de arriba + la lógica de 07 (sin cambios). No se compara un
+    # "antes/después" de este archivo acá: en una corrida de
+    # run_pipeline.py desde cero, este paso corre ANTES que
+    # 14_flag_residuos_no_blancos.py, así que cualquier snapshot "antes"
+    # leído de disco reflejaría un estado de un commit previo (con
+    # columnas que este paso todavía no agregó), no el estado real
+    # "antes de este script" -- comparar contra eso es incorrecto, no
+    # más seguro (bug real encontrado en la verificación de
+    # reproducibilidad end-to-end, 2026-08).
     print("\nRe-corriendo 07_enriquecer_clasificacion.py para propagar las columnas nuevas...")
     proceso = subprocess.run([sys.executable, str(ROOT / "src" / "07_enriquecer_clasificacion.py")], cwd=ROOT)
     if proceso.returncode != 0:
         print("¡07_enriquecer_clasificacion.py falló!")
         sys.exit(1)
-
-    if enriquecidos_antes is not None:
-        enriquecidos_despues = pd.read_parquet(ENRIQUECIDOS_PATH)
-        print("\nVerificación de resultados_enriquecidos.parquet (columnas preexistentes):")
-        idénticas2 = True
-        for col in columnas_enriquecidos_antes:
-            igual = enriquecidos_antes[col].equals(enriquecidos_despues[col])
-            if not igual:
-                idénticas2 = False
-                print(f"  [DIFERENTE] {col}")
-        if idénticas2:
-            print(f"  Las {len(columnas_enriquecidos_antes)} columnas preexistentes son IDÉNTICAS.")
-        else:
-            print("  ¡Se encontraron diferencias! Revisar manualmente.")
-            sys.exit(1)
 
     imprimir_hallazgo(actualizado)
 
@@ -279,16 +273,29 @@ def construir_markdown(n_total, n_gana_ao, pct_gana_ao, n_gana_naive, pct_gana_n
         L.append("## Observaciones adicionales (detectadas al implementar este benchmark, no introducidas por él)")
         L.append("")
         if grupos_dup:
-            pares = "; ".join(", ".join(g) for g in grupos_dup)
+            pares = ", ".join("/".join(g) for g in grupos_dup)
             L.append(
-                f"- **{len(grupos_dup)} par(es) de países con series `inflacion_yoy_log` "
-                "byte-idénticas** en `inflacion_mensual_completa_v2.parquet` (mismo indicador, "
-                f"mismos valores en todas las fechas): {pares}. Preexistente a este cambio — "
-                "se verificó que `rmse_arima_walkforward` ya era idéntico para estos pares "
-                "antes de esta remediación, así que no fue introducido por el benchmark AO. "
-                "Amerita revisión de la fuente (posible mapeo erróneo código-país↔serie en el "
-                "Excel del Banco Mundial); no se corrige acá por estar fuera del alcance de "
-                "esta remediación."
+                f"- **{len(grupos_dup)} par(es) de países con la serie `hcpi` (índice de precios "
+                "headline) byte-idéntica** en `inflacion_mensual_completa_v2.parquet`: "
+                f"{pares}. Re-verificado de forma independiente sobre la serie cruda completa "
+                "(no solo el tramo walk-forward): `indice`, `inflacion_yoy_pct`, "
+                "`inflacion_yoy_log` y `fecha` son `.equals()` idénticos fila a fila para los "
+                "tres pares, con igual longitud (663/663, 663/663 y 411/411 filas "
+                "respectivamente). Es **específico del indicador `hcpi`**: se verificó que "
+                "otros indicadores para los mismos pares de países (ej. `ecpi`) NO son "
+                "idénticos — FIN/GAB `ecpi` tiene largos distintos (663 vs. 180), CZE/DJI "
+                "`ecpi` también (363 vs. 324), y GBR/USA `ecpi` tiene igual largo pero valores "
+                "distintos — lo que descarta una corrupción a nivel país y apunta a un "
+                "problema puntual en el mapeo código-país↔serie `hcpi` del Excel del Banco "
+                "Mundial para estos tres pares. Preexistente a este cambio — se verificó que "
+                "`rmse_arima_walkforward` ya era idéntico para estos pares antes de esta "
+                "remediación, así que no fue introducido por el benchmark AO. No se corrige "
+                "acá por estar fuera del alcance de esta remediación. **Seguimiento**: este "
+                "hallazgo se investigó en profundidad por separado — búsqueda exhaustiva en "
+                "las 5 hojas mensuales, análisis forense contra la hoja anual oficial, y "
+                "medición del impacto en el gradiente de ingreso — en "
+                "`reports/diagnostico_series_duplicadas.md`, e incorporado a la auditoría "
+                "integral como hallazgo A.7."
             )
         if n_ao_cero:
             L.append(

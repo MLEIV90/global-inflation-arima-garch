@@ -48,28 +48,21 @@ def main() -> None:
     actualizado.to_parquet(RESULTADOS_PATH, index=False)
     print(f"Guardado: {RESULTADOS_PATH} ({len(actualizado)} filas, {len(actualizado.columns)} columnas)")
 
-    enriquecidos_antes = pd.read_parquet(ENRIQUECIDOS_PATH) if ENRIQUECIDOS_PATH.exists() else None
-    columnas_enriquecidos_antes = [c for c in enriquecidos_antes.columns if c not in COLUMNAS_R2] if enriquecidos_antes is not None else []
-
+    # 07_enriquecer_clasificacion.py reconstruye el archivo entero desde
+    # resultados_modelos_robusto.parquet (no lo parchea incrementalmente),
+    # así que la garantía de no-regresión ya está dada por la
+    # verificación de arriba + la lógica de 07 (sin cambios). No se
+    # compara un "antes/después" de este archivo acá -- ver la nota
+    # equivalente en 13_benchmark_atkeson_ohanian.py, mismo bug real
+    # encontrado y corregido en la verificación de reproducibilidad
+    # end-to-end (2026-08): un snapshot leído de disco antes de este
+    # paso puede reflejar un commit previo con columnas de pasos
+    # posteriores, no el estado real "antes de este script".
     print("\nRe-corriendo 07_enriquecer_clasificacion.py para propagar la columna nueva...")
     proceso = subprocess.run([sys.executable, str(ROOT / "src" / "07_enriquecer_clasificacion.py")], cwd=ROOT)
     if proceso.returncode != 0:
         print("¡07_enriquecer_clasificacion.py falló!")
         sys.exit(1)
-
-    if enriquecidos_antes is not None:
-        enriquecidos_despues = pd.read_parquet(ENRIQUECIDOS_PATH)
-        print("\nVerificación de resultados_enriquecidos.parquet (columnas preexistentes):")
-        idénticas2 = True
-        for col in columnas_enriquecidos_antes:
-            if not enriquecidos_antes[col].equals(enriquecidos_despues[col]):
-                idénticas2 = False
-                print(f"  [DIFERENTE] {col}")
-        if idénticas2:
-            print(f"  Las {len(columnas_enriquecidos_antes)} columnas preexistentes son IDÉNTICAS.")
-        else:
-            print("  ¡Se encontraron diferencias! Revisar manualmente.")
-            sys.exit(1)
 
     imprimir_hallazgo(actualizado)
 
